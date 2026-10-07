@@ -31,7 +31,6 @@ RUN groupadd --gid 1001 app && useradd --uid 1001 --gid app --create-home app \
 
 COPY --from=build --chown=app:app /app/.next/standalone ./
 COPY --from=build --chown=app:app /app/.next/static ./.next/static
-COPY --from=build --chown=app:app /app/public ./public
 
 USER app
 VOLUME /data
