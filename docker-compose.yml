@@ -1,0 +1,28 @@
+services:
+  backup-manager:
+    build: .
+    restart: unless-stopped
+    # tini en PID 1 : récupère les processus orphelins des scripts ; Node ne reçoit plus les signaux en PID 1.
+    init: true
+    security_opt:
+      - "no-new-privileges:true"
+    environment:
+      DB_ENCRYPTION_KEY: ${DB_ENCRYPTION_KEY:?DB_ENCRYPTION_KEY requise}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      APP_URL: ${APP_URL:?APP_URL requise (ex. https://backups.example.com)}
+      TZ: Europe/Paris
+    volumes:
+      - backup-data:/data
+      - /mnt/backups-nas:/mnt/backups-nas
+    networks:
+      - dokploy-network
+    expose:
+      - "3000"
+
+volumes:
+  backup-data:
+
+networks:
+  dokploy-network:
+    external: true

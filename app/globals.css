@@ -1,0 +1,120 @@
+@import "tailwindcss";
+
+/* Charte sombre et neutre : aplats, bordures fines, aucune ombre, aucun dégradé. */
+@theme {
+  --font-sans: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", monospace;
+
+  --color-bg: #0a0a0a;
+  --color-raised: #111111;
+  --color-line: #262626;
+  --color-line-soft: #1c1c1c;
+  --color-fg: #ededed;
+  --color-muted: #8f8f8f;
+  --color-faint: #5c5c5c;
+  --color-ok: #3ecf8e;
+  --color-warn: #e5a23b;
+  --color-bad: #ef5350;
+  --color-run: #5ea0ff;
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply min-h-screen bg-bg font-sans text-[14px] leading-6 text-fg antialiased;
+    font-feature-settings: "tnum" 1;
+  }
+
+  ::selection {
+    background: #ededed;
+    color: #0a0a0a;
+  }
+
+  label {
+    @apply text-[13px] text-muted;
+  }
+
+  input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+  select,
+  textarea {
+    @apply h-9 rounded-md border border-line bg-bg px-3 text-[14px] text-fg placeholder:text-faint;
+    @apply transition-colors outline-none hover:border-[#3a3a3a] focus:border-[#5c5c5c];
+  }
+
+  textarea {
+    @apply h-auto py-2;
+  }
+
+  input[type="checkbox"] {
+    @apply size-3.5 accent-[#ededed];
+  }
+
+  code {
+    @apply font-mono text-[0.9em] text-fg;
+  }
+
+  /* Les zones de défilement contiennent leurs éléments positionnés (ex. libellés sr-only des tableaux). */
+  .overflow-x-auto,
+  .overflow-auto {
+    position: relative;
+  }
+
+  :focus-visible {
+    outline: 1px solid #ededed;
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  .panel {
+    @apply rounded-lg border border-line;
+  }
+
+  .btn {
+    @apply inline-flex h-8 max-w-full items-center justify-center gap-1.5 rounded-md px-3 text-center text-[13px] font-medium whitespace-nowrap transition-colors;
+    @apply disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .btn-primary {
+    @apply bg-fg text-bg hover:bg-white;
+  }
+
+  .btn-secondary {
+    @apply border border-line text-fg hover:border-[#3a3a3a] hover:bg-raised;
+  }
+
+  .btn-danger {
+    @apply border border-line text-bad hover:border-bad/60;
+  }
+
+  .btn-ghost {
+    @apply h-7 px-2 text-muted hover:bg-raised hover:text-fg;
+  }
+
+  .data-table {
+    @apply w-full text-[14px];
+  }
+
+  .data-table thead th {
+    @apply border-b border-line px-3 py-2 text-left text-[13px] font-normal whitespace-nowrap text-muted;
+  }
+
+  .data-table tbody td {
+    @apply border-b border-line-soft px-3 py-3 align-middle;
+  }
+
+  .data-table tbody tr:last-child td {
+    @apply border-b-0;
+  }
+
+  .link {
+    @apply text-fg underline-offset-4 hover:underline;
+  }
+
+  .mono {
+    @apply font-mono text-[13px];
+  }
+}
