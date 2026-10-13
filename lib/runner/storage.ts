@@ -1,6 +1,7 @@
-import { constants } from "node:fs";
+import { constants, createWriteStream } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { pipeline } from "node:stream/promises";
 import type { AppConfig } from "@/lib/config";
 import type { Run } from "@/lib/repo/runs";
 
@@ -42,16 +43,36 @@ export async function dirStats(dir: string): Promise<{ files: string[]; size: nu
   return { files: files.sort(), size };
 }
 
-export async function moveOutputs(src: string, dest: string): Promise<{ files: string[]; size: number }> {
+// $OUTPUT_DIR doit rester un vrai dossier : remplacé par un lien, il ferait lister (et télécharger) autre chose.
+export async function assertRealDir(dir: string): Promise<void> {
+  const st = await fs.lstat(dir);
+  if (!st.isDirectory()) throw new Error("$OUTPUT_DIR a été remplacé par un lien ou un fichier : refusé");
+}
+
+// Copie les sorties du script (le dossier source peut être en lecture seule : volume du runner).
+// Seuls les fichiers et dossiers réels sont copiés, ouverts sans suivre de lien ; le reste est ignoré et listé.
+export async function copyOutputs(src: string, dest: string): Promise<{ files: string[]; size: number; skipped: string[] }> {
+  await assertRealDir(src);
   await fs.mkdir(path.dirname(dest), { recursive: true });
-  try {
-    await fs.rename(src, dest);
-  } catch (e) {
-    if ((e as NodeJS.ErrnoException).code !== "EXDEV") throw e;
-    await fs.cp(src, dest, { recursive: true });
-    await fs.rm(src, { recursive: true, force: true });
-  }
-  return dirStats(dest);
+  await fs.mkdir(dest);
+  const skipped: string[] = [];
+  const walk = async (from: string, to: string) => {
+    for (const entry of await fs.readdir(from, { withFileTypes: true })) {
+      const source = path.join(from, entry.name);
+      const target = path.join(to, entry.name);
+      if (entry.isDirectory()) {
+        await fs.mkdir(target);
+        await walk(source, target);
+      } else if (entry.isFile()) {
+        const fh = await fs.open(source, constants.O_RDONLY | constants.O_NOFOLLOW);
+        await pipeline(fh.createReadStream(), createWriteStream(target, { flags: "wx" }));
+      } else {
+        skipped.push(path.relative(src, source));
+      }
+    }
+  };
+  await walk(src, dest);
+  return { ...(await dirStats(dest)), skipped: skipped.sort() };
 }
 
 // Un bind mount d'un partage non monté est un dossier vide : le fichier témoin prouve que c'est bien le NAS.

@@ -19,6 +19,7 @@ describe("loadConfig", () => {
       adminPassword: null,
       appUrl: "http://localhost:3000",
       tz: "Europe/Paris",
+      runnerSocket: null,
     });
   });
 
@@ -35,5 +36,13 @@ describe("loadConfig", () => {
     expect(cfg.adminEmail).toBe("me@x.fr");
     expect(cfg.appUrl).toBe("https://backups.example.com");
     expect(cfg.tz).toBe("UTC");
+  });
+
+  it("exige le runner isolé en production", () => {
+    expect(() => loadConfig({ DB_ENCRYPTION_KEY: KEY, NODE_ENV: "production" })).toThrow(/RUNNER_SOCKET/);
+    expect(loadConfig({ DB_ENCRYPTION_KEY: KEY, NODE_ENV: "production", RUNNER_SOCKET: "/run/bm/runner.sock" }).runnerSocket).toBe(
+      "/run/bm/runner.sock",
+    );
+    expect(loadConfig({ DB_ENCRYPTION_KEY: KEY, NODE_ENV: "production", RUNNER_MODE: "local" }).runnerSocket).toBeNull();
   });
 });

@@ -13,9 +13,33 @@ COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
-FROM node:24-bookworm-slim AS runner
+# Application : pas d'outils de dump (les scripts tournent dans le runner).
+# Le code appartient à root : le processus (uid app) ne peut pas le modifier.
+FROM node:24-bookworm-slim AS app
 WORKDIR /app
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=3000 HOSTNAME=0.0.0.0 TZ=Europe/Paris DATA_DIR=/data NAS_DIR=/mnt/backups-nas
+
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl tzdata \
+ && rm -rf /var/lib/apt/lists/*
+
+RUN groupadd --gid 1001 app && useradd --uid 1001 --gid app --create-home app \
+ && mkdir -p /data /mnt/backups-nas /work /run/bm && chown app:app /data /mnt/backups-nas
+
+COPY --from=build /app/.next/standalone ./
+COPY --from=build /app/.next/static ./.next/static
+
+USER app
+VOLUME /data
+EXPOSE 3000
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s CMD curl -fsS http://localhost:3000/api/health || exit 1
+CMD ["node", "server.js"]
+
+# Runner isolé : exécute les scripts de backup, sans la base, sans sa clé, sans le NAS.
+# Tourne en root avec seulement CHOWN/SETUID/SETGID/KILL (voir docker-compose.yml) pour lancer
+# chaque run sous son propre uid.
+FROM node:24-bookworm-slim AS runner
+WORKDIR /runner
+ENV NODE_ENV=production TZ=Europe/Paris RUNNER_SOCKET=/run/bm/runner.sock WORK_DIR=/work APP_GID=1001
 
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl gnupg bash tzdata \
  && install -d /usr/share/keyrings \
@@ -26,14 +50,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
  && apt-get update && apt-get install -y --no-install-recommends postgresql-client-18 mongodb-database-tools \
  && rm -rf /var/lib/apt/lists/*
 
-RUN groupadd --gid 1001 app && useradd --uid 1001 --gid app --create-home app \
- && mkdir -p /data /mnt/backups-nas && chown app:app /data /mnt/backups-nas
+RUN mkdir -p /work /run/bm
 
-COPY --from=build --chown=app:app /app/.next/standalone ./
-COPY --from=build --chown=app:app /app/.next/static ./.next/static
+COPY lib/runner/env.ts lib/runner/execute.ts lib/runner/mask.ts ./lib/runner/
+COPY runner/server.ts ./runner/
 
-USER app
-VOLUME /data
-EXPOSE 3000
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s CMD curl -fsS http://localhost:3000/api/health || exit 1
-CMD ["node", "server.js"]
+VOLUME /work
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s CMD test -S "$RUNNER_SOCKET" || exit 1
+CMD ["node", "runner/server.ts"]

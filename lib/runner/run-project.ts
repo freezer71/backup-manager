@@ -6,11 +6,12 @@ import { getSecretsMap } from "@/lib/repo/environments";
 import { getProject, type Project } from "@/lib/repo/projects";
 import { createRun, finishRun, getRun, hasRunningRun, setRunLog, type NasStatus, type RunStatus } from "@/lib/repo/runs";
 import { buildRunEnv, formatStamp } from "./env";
-import { executeScript } from "./execute";
+import { executeScript, type ExecResult } from "./execute";
 import { makeMasker } from "./mask";
 import { notifyProblem, sendNotification } from "./notify";
+import { runRemote } from "./remote";
 import { applyRetention } from "./retention";
-import { copyToNas, dirStats, isNasReady, localBackupDir, moveOutputs, NAS_MARKER, nasBackupDir } from "./storage";
+import { assertRealDir, copyOutputs, copyToNas, dirStats, isNasReady, localBackupDir, NAS_MARKER, nasBackupDir } from "./storage";
 
 export type RunDeps = {
   db: DB;
@@ -74,42 +75,58 @@ async function execute(project: Project, runId: number, stamp: string, deps: Run
     notifyProblem(db, cfg, { projectSlug: project.slug, projectId: project.id, runId, status, message }, send);
 
   const runDir = path.join(cfg.dataDir, "tmp", String(runId));
-  const workDir = path.join(runDir, "work");
-  const outDir = path.join(runDir, "out");
-  const scriptPath = path.join(runDir, "script.sh");
   let log = "";
   let mask = (s: string) => s;
+  let release = () => {};
 
   try {
-    await fs.mkdir(workDir, { recursive: true });
-    await fs.mkdir(outDir, { recursive: true });
-    await fs.writeFile(scriptPath, project.script, { mode: 0o700 });
-
     const secrets = project.environment_id ? getSecretsMap(db, project.environment_id) : {};
     mask = makeMasker(Object.values(secrets));
 
     let lastFlush = 0;
+    const onLog = (current: string) => {
+      log = current;
+      const t = Date.now();
+      if (t - lastFlush > 1000) {
+        lastFlush = t;
+        setRunLog(db, runId, current);
+      }
+    };
+    const timeoutMs = project.timeout_minutes * 60_000;
     const scriptStart = Date.now();
-    const result = await executeScript({
-      scriptPath,
-      cwd: workDir,
-      env: buildRunEnv({ secrets, outputDir: outDir, homeDir: workDir, projectSlug: project.slug, stamp, tz: cfg.tz }),
-      timeoutMs: project.timeout_minutes * 60_000,
-      exitGraceMs: deps.exitGraceMs,
-      tz: cfg.tz,
-      mask,
-      onLog: (current) => {
-        log = current;
-        const t = Date.now();
-        if (t - lastFlush > 1000) {
-          lastFlush = t;
-          setRunLog(db, runId, current);
-        }
-      },
-    });
+    let result: ExecResult;
+    let outDir: string;
+    if (cfg.runnerSocket) {
+      // Production : le script tourne dans le runner isolé, sans accès à la base ni à sa clé.
+      const remote = await runRemote(
+        cfg.runnerSocket,
+        { runId, script: project.script, secrets, projectSlug: project.slug, stamp, tz: cfg.tz, timeoutMs, exitGraceMs: deps.exitGraceMs },
+        onLog,
+      );
+      ({ result, outDir } = remote);
+      release = remote.release;
+    } else {
+      const workDir = path.join(runDir, "work");
+      outDir = path.join(runDir, "out");
+      const scriptPath = path.join(runDir, "script.sh");
+      await fs.mkdir(workDir, { recursive: true });
+      await fs.mkdir(outDir, { recursive: true });
+      await fs.writeFile(scriptPath, project.script, { mode: 0o700 });
+      result = await executeScript({
+        scriptPath,
+        cwd: workDir,
+        env: buildRunEnv({ secrets, outputDir: outDir, homeDir: workDir, projectSlug: project.slug, stamp, tz: cfg.tz }),
+        timeoutMs,
+        exitGraceMs: deps.exitGraceMs,
+        tz: cfg.tz,
+        mask,
+        onLog,
+      });
+    }
     log = result.log;
     const scriptMs = Date.now() - scriptStart;
 
+    await assertRealDir(outDir);
     const produced = await dirStats(outDir);
     let status: RunStatus = "success";
     if (result.timedOut) status = "timeout";
@@ -128,7 +145,13 @@ async function execute(project: Project, runId: number, stamp: string, deps: Run
     }
 
     const run = getRun(db, runId)!;
-    const stored = await moveOutputs(outDir, localBackupDir(cfg, project.slug, run));
+    const stored = await copyOutputs(outDir, localBackupDir(cfg, project.slug, run));
+    // Sorties copiées : le runner peut tout nettoyer sans attendre la copie NAS.
+    release();
+    release = () => {};
+    if (stored.skipped.length > 0) {
+      log += mask(`Ignorés (liens symboliques ou fichiers spéciaux) : ${stored.skipped.join(", ")}\n`);
+    }
 
     let nasStatus: NasStatus = "n/a";
     let nasError: string | null = null;
@@ -175,6 +198,7 @@ async function execute(project: Project, runId: number, stamp: string, deps: Run
       console.error(`[run] projet ${project.slug}, run ${runId} : ${mask(errorMessage(inner))}`);
     }
   } finally {
+    release();
     await fs.rm(runDir, { recursive: true, force: true }).catch(() => {});
   }
 }

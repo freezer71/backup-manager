@@ -26,9 +26,16 @@ Tests : `npm test` (unitaires), `npm run test:int` (Docker requis), `npm run tes
 - Exécuté par `bash -euo pipefail` dans un dossier temporaire vide.
 - L'environnement transmis est limité aux secrets de l'environnement choisi, `OUTPUT_DIR`,
   `PROJECT_NAME`, `TIMESTAMP` (`YYYY-MM-DD_HH-MM-SS`), `PATH`, `HOME`, `TZ`, `LANG`.
-- **Ce n'est pas une isolation.** Le script tourne avec le même utilisateur que l'application et
-  pourrait lire la clé maître (`DB_ENCRYPTION_KEY`) via `/proc`. Ne lancez donc que des scripts de
-  confiance (les vôtres).
+- En production, le script tourne dans le conteneur `runner`, séparé de l'application : il n'a ni
+  la base, ni `DB_ENCRYPTION_KEY`, ni le NAS, ni le réseau Dokploy. Chaque run a son propre uid
+  (100000 + id du run) : un script ne lit ni l'environnement ni les fichiers d'un autre run, et ne
+  peut pas joindre le socket du runner. À la fin du run, tout ce qui tourne encore sous cet uid est
+  tué (y compris un démon sorti du groupe avec `setsid`).
+- Seuls les fichiers et dossiers réels de `$OUTPUT_DIR` sont gardés ; les liens symboliques sont
+  ignorés (et listés dans le journal).
+- En développement (sans `RUNNER_SOCKET`), le script tourne dans le processus de l'application,
+  sans aucune isolation. En production, l'application refuse de démarrer sans `RUNNER_SOCKET`
+  (sauf `RUNNER_MODE=local`, réservé aux tests e2e).
 - Succès = code de sortie 0 **et** au moins un fichier dans `$OUTPUT_DIR`.
 - Les valeurs des secrets sont masquées (`••••`) dans les logs.
 
@@ -51,6 +58,14 @@ Tests : `npm test` (unitaires), `npm run test:int` (Docker requis), `npm run tes
   réinitialiser la 2FA révoque tous les appareils.
 - **Clé de chiffrement.** Sans `DB_ENCRYPTION_KEY`, la base est irrécupérable : conservez-la dans
   un gestionnaire de mots de passe.
+- **Réseau du runner.** Le compose crée le bridge `br-bm-runner`. Sur l'hôte, le pare-feu doit
+  n'autoriser depuis ce bridge que l'Internet public : ni LAN, ni autres réseaux Docker, ni l'hôte
+  lui-même. Sur le homelab, c'est fait par `/usr/local/sbin/homelab-firewall` (chaînes
+  `HOMELAB-RUNNER` dans `DOCKER-USER` et `HOMELAB-RUNNER-IN` dans `INPUT`, interfaces `br-bm+`).
+  Le runner utilise 1.1.1.1 et 9.9.9.9 comme DNS, puisque le résolveur de la box est sur le LAN.
+- **Conteneurs durcis.** Les deux conteneurs sont en lecture seule (`read_only`), sans capacités
+  (le runner garde seulement CHOWN, SETUID, SETGID et KILL), avec `no-new-privileges` et des limites
+  de mémoire et de processus. Le code appartient à root dans les images.
 
 ### 1. Partage NAS en écriture
 

@@ -26,5 +26,6 @@ export function testConfig(): AppConfig {
     adminPassword: null,
     appUrl: "http://test",
     tz: "Europe/Paris",
+    runnerSocket: null,
   };
 }

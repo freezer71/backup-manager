@@ -23,6 +23,8 @@ export default defineConfig({
       ADMIN_PASSWORD: "e2e-password-123",
       APP_URL: `http://localhost:${PORT}`,
       TZ: "Europe/Paris",
+      // Pas de runner isolé en e2e : les scripts tournent dans le processus de l'application.
+      RUNNER_MODE: "local",
     },
   },
 });

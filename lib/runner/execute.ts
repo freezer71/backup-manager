@@ -13,6 +13,9 @@ export type ExecOptions = {
   // Délai entre la fin de bash et l'arrêt forcé des processus qui gardent encore stdout/stderr ouverts.
   exitGraceMs?: number;
   maxLogBytes?: number;
+  // Compte sous lequel lancer le script (runner isolé, qui tourne en root avec CAP_SETUID/SETGID).
+  uid?: number;
+  gid?: number;
 };
 
 export type ExecResult = {
@@ -63,6 +66,8 @@ export function executeScript(o: ExecOptions): Promise<ExecResult> {
       // Cast : le typage de Next impose NODE_ENV dans ProcessEnv, qu'on ne transmet volontairement pas.
       env: o.env as NodeJS.ProcessEnv,
       detached: true,
+      uid: o.uid,
+      gid: o.gid,
       stdio: ["ignore", "pipe", "pipe"],
     });
 

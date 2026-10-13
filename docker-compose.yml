@@ -1,28 +1,87 @@
 services:
   backup-manager:
-    build: .
+    build:
+      context: .
+      target: app
     restart: unless-stopped
-    # tini en PID 1 : récupère les processus orphelins des scripts ; Node ne reçoit plus les signaux en PID 1.
+    # tini en PID 1 : récupère les processus orphelins ; Node ne reçoit plus les signaux en PID 1.
     init: true
+    # Code en lecture seule (il appartient à root dans l'image) ; seuls /data, le NAS et /tmp sont inscriptibles.
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
     security_opt:
       - "no-new-privileges:true"
+    pids_limit: 256
+    mem_limit: 1g
     environment:
       DB_ENCRYPTION_KEY: ${DB_ENCRYPTION_KEY:?DB_ENCRYPTION_KEY requise}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       APP_URL: ${APP_URL:?APP_URL requise (ex. https://backups.example.com)}
       TZ: Europe/Paris
+      RUNNER_SOCKET: /run/bm/runner.sock
     volumes:
       - backup-data:/data
       - /mnt/backups-nas:/mnt/backups-nas
+      # Sorties des scripts, écrites par le runner : lues seulement.
+      - runner-work:/work:ro
+      - runner-socket:/run/bm
+    depends_on:
+      runner:
+        condition: service_healthy
     networks:
       - dokploy-network
     expose:
       - "3000"
 
+  # Exécute les scripts de backup : pas de base, pas de DB_ENCRYPTION_KEY, pas de NAS, pas de réseau Dokploy.
+  # Root pour lancer chaque run sous son propre uid, avec seulement les capacités nécessaires.
+  runner:
+    build:
+      context: .
+      target: runner
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:size=1g,mode=1777
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+      - KILL
+    security_opt:
+      - "no-new-privileges:true"
+    pids_limit: 512
+    mem_limit: 2g
+    # Résolveurs publics : celui de la box est sur le LAN, que le pare-feu de l'hôte interdit au runner.
+    dns:
+      - 1.1.1.1
+      - 9.9.9.9
+    environment:
+      TZ: Europe/Paris
+    volumes:
+      - runner-work:/work
+      - runner-socket:/run/bm
+    networks:
+      - runner
+
 volumes:
   backup-data:
+  runner-work:
+  runner-socket:
 
 networks:
   dokploy-network:
     external: true
+  # Accès Internet seulement : le pare-feu de l'hôte bloque depuis br-bm-runner le LAN, les autres réseaux
+  # Docker et l'hôte lui-même (voir README).
+  runner:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: br-bm-runner
