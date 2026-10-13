@@ -46,8 +46,9 @@ services:
     restart: unless-stopped
     init: true
     read_only: true
+    # Chaque run a son TMPDIR dans son dossier ; ce /tmp commun ne sert qu'aux outils qui l'ignorent.
     tmpfs:
-      - /tmp:size=1g,mode=1777
+      - /tmp:size=64m,mode=1777
     cap_drop:
       - ALL
     cap_add:

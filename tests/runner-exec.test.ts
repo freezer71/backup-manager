@@ -57,7 +57,7 @@ describe("buildRunEnv", () => {
     vi.stubEnv("DB_ENCRYPTION_KEY", "ne-doit-pas-fuiter");
     const env = buildRunEnv({ secrets: { A: "1" }, outputDir: "/o", homeDir: "/h", projectSlug: "p", stamp: "s", tz: "UTC" });
     expect(env.DB_ENCRYPTION_KEY).toBeUndefined();
-    expect(env).toMatchObject({ A: "1", OUTPUT_DIR: "/o", HOME: "/h", PROJECT_NAME: "p", TIMESTAMP: "s", TZ: "UTC" });
+    expect(env).toMatchObject({ A: "1", OUTPUT_DIR: "/o", HOME: "/h", TMPDIR: "/h", PROJECT_NAME: "p", TIMESTAMP: "s", TZ: "UTC" });
   });
   it("les variables réservées priment sur un secret homonyme", () => {
     const env = buildRunEnv({ secrets: { OUTPUT_DIR: "/pirate" }, outputDir: "/o", homeDir: "/h", projectSlug: "p", stamp: "s", tz: "UTC" });

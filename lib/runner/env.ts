@@ -29,6 +29,8 @@ export function buildRunEnv(o: {
     ...o.secrets,
     PATH: process.env.PATH ?? "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
     HOME: o.homeDir,
+    // Fichiers temporaires dans le dossier du run, pas dans le /tmp commun à tous les runs.
+    TMPDIR: o.homeDir,
     TZ: o.tz,
     LANG: "C.UTF-8",
     OUTPUT_DIR: o.outputDir,

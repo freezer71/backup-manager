@@ -25,7 +25,8 @@ Tests : `npm test` (unitaires), `npm run test:int` (Docker requis), `npm run tes
 
 - Exécuté par `bash -euo pipefail` dans un dossier temporaire vide.
 - L'environnement transmis est limité aux secrets de l'environnement choisi, `OUTPUT_DIR`,
-  `PROJECT_NAME`, `TIMESTAMP` (`YYYY-MM-DD_HH-MM-SS`), `PATH`, `HOME`, `TZ`, `LANG`.
+  `PROJECT_NAME`, `TIMESTAMP` (`YYYY-MM-DD_HH-MM-SS`), `PATH`, `HOME`, `TMPDIR` (dossier du run),
+  `TZ`, `LANG`.
 - En production, le script tourne dans le conteneur `runner`, séparé de l'application : il n'a ni
   la base, ni `DB_ENCRYPTION_KEY`, ni le NAS, ni le réseau Dokploy. Chaque run a son propre uid
   (100000 + id du run) : un script ne lit ni l'environnement ni les fichiers d'un autre run, et ne

@@ -1,7 +1,7 @@
 export class ValidationError extends Error {}
 
 export const SECRET_KEY_RE = /^[A-Z_][A-Z0-9_]*$/;
-export const RESERVED_KEYS = new Set(["PATH", "HOME", "TZ", "LANG", "OUTPUT_DIR", "PROJECT_NAME", "TIMESTAMP"]);
+export const RESERVED_KEYS = new Set(["PATH", "HOME", "TZ", "LANG", "OUTPUT_DIR", "PROJECT_NAME", "TIMESTAMP", "TMPDIR"]);
 
 export function assertSecretKey(key: string): void {
   if (!SECRET_KEY_RE.test(key)) {
