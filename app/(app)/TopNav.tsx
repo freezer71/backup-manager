@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { Logo } from "../components/Logo";
 import { logoutAction } from "../login/actions";
 
 const NAV = [
@@ -22,7 +23,9 @@ export function TopNav() {
   return (
     <header className="border-b border-line">
       <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-8 px-4 sm:flex-nowrap sm:px-6">
-        <span className="order-1 shrink-0 py-3 text-[14px] font-semibold tracking-tight">Backup Manager</span>
+        <Link href="/" className="order-1 shrink-0 py-3 text-[14px]">
+          <Logo />
+        </Link>
         <nav aria-label="Navigation principale" className="order-3 -mb-px flex w-full min-w-0 gap-5 overflow-x-auto sm:order-2 sm:w-auto sm:flex-1">
           {NAV.map(({ href, label }) => {
             const active = isActive(pathname, href);
