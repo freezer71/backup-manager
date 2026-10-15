@@ -19,7 +19,8 @@ FROM node:24-bookworm-slim AS app
 WORKDIR /app
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=3000 HOSTNAME=0.0.0.0 TZ=Europe/Paris DATA_DIR=/data NAS_DIR=/mnt/backups-nas
 
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl tzdata \
+# age : chiffrement des copies NAS (NAS_AGE_RECIPIENTS).
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl tzdata age \
  && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --gid 1001 app && useradd --uid 1001 --gid app --create-home app \

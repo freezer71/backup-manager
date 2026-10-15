@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { constants, createWriteStream } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -86,11 +87,53 @@ export async function isNasReady(nasDir: string): Promise<boolean> {
   }
 }
 
-export async function copyToNas(src: string, dest: string): Promise<void> {
+// Avec des clés publiques age, chaque fichier est chiffré en `<nom>.age` : le NAS ne voit jamais de clair,
+// et seul le détenteur de la clé privée peut relire la copie (l'application elle-même ne le peut pas).
+export async function copyToNas(src: string, dest: string, recipients: readonly string[] = []): Promise<void> {
   await fs.mkdir(path.dirname(dest), { recursive: true });
-  await fs.cp(src, dest, { recursive: true, errorOnExist: true, force: false });
-  const [a, b] = await Promise.all([dirStats(src), dirStats(dest)]);
-  if (a.size !== b.size || a.files.length !== b.files.length) {
-    throw new Error(`Copie NAS incomplète : ${b.size} octets copiés sur ${a.size}`);
+  if (recipients.length === 0) {
+    await fs.cp(src, dest, { recursive: true, errorOnExist: true, force: false });
+  } else {
+    await fs.mkdir(dest); // échoue si la copie existe déjà : on n'écrase jamais
+    try {
+      await encryptTree(src, dest, recipients);
+    } catch (e) {
+      await fs.rm(dest, { recursive: true, force: true });
+      throw e;
+    }
   }
+  const [a, b] = await Promise.all([dirStats(src), dirStats(dest)]);
+  // Un fichier chiffré est toujours plus gros que l'original (en-tête + étiquettes d'authentification).
+  const complete = recipients.length === 0 ? a.size === b.size : b.size > a.size;
+  if (!complete || a.files.length !== b.files.length) {
+    throw new Error(`Copie NAS incomplète : ${b.files.length} fichiers sur ${a.files.length}, ${b.size} octets écrits pour ${a.size}`);
+  }
+}
+
+async function encryptTree(from: string, to: string, recipients: readonly string[]): Promise<void> {
+  for (const entry of await fs.readdir(from, { withFileTypes: true })) {
+    const source = path.join(from, entry.name);
+    const target = path.join(to, entry.name);
+    if (entry.isDirectory()) {
+      await fs.mkdir(target);
+      await encryptTree(source, target, recipients);
+    } else if (entry.isFile()) {
+      await ageEncrypt(source, `${target}.age`, recipients);
+    }
+  }
+}
+
+// Le binaire age chiffre en flux : un gros dump ne passe jamais en entier par la mémoire de Node.
+function ageEncrypt(input: string, output: string, recipients: readonly string[]): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const args = [...recipients.flatMap((r) => ["-r", r]), "-o", output, input];
+    const child = spawn("age", args, { stdio: ["ignore", "ignore", "pipe"] });
+    let stderr = "";
+    child.stderr.on("data", (d: Buffer) => (stderr += d.toString()));
+    child.on("error", (e) => reject(new Error(`age impossible à lancer : ${e.message}`)));
+    child.on("close", (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`chiffrement age en échec (code ${code}) : ${stderr.trim().split("\n")[0] ?? ""}`));
+    });
+  });
 }

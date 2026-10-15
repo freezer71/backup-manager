@@ -20,7 +20,18 @@ describe("loadConfig", () => {
       appUrl: "http://localhost:3000",
       tz: "Europe/Paris",
       runnerSocket: null,
+      nasRecipients: [],
     });
+  });
+
+  it("lit les clés publiques age du NAS, séparées par des virgules ou des espaces", () => {
+    const a = "age1qqfhpx4f958eezxm5379lupvx9jcu3a9657cf6juxd57v5v2ry6qhk45sf";
+    const b = "age12kjv2jc4muc6negy2a07dt7jqdqwp4wyzqp4cpe8vakge0gc5yjqvkhrq8";
+    expect(loadConfig({ DB_ENCRYPTION_KEY: KEY, NAS_AGE_RECIPIENTS: ` ${a}, ${b} ` }).nasRecipients).toEqual([a, b]);
+  });
+
+  it("refuse une clé publique age mal formée plutôt que de copier en clair", () => {
+    expect(() => loadConfig({ DB_ENCRYPTION_KEY: KEY, NAS_AGE_RECIPIENTS: "AGE-SECRET-KEY-1ABC" })).toThrow(/NAS_AGE_RECIPIENTS/);
   });
 
   it("lit les variables et retire le / final de APP_URL", () => {

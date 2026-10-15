@@ -23,6 +23,8 @@ services:
       APP_URL: ${APP_URL:?APP_URL requise (ex. https://backups.example.com)}
       TZ: Europe/Paris
       RUNNER_SOCKET: /run/bm/runner.sock
+      # Clé(s) publique(s) age : chaque copie NAS est chiffrée pour elles (README, « Chiffrement des copies NAS »).
+      NAS_AGE_RECIPIENTS: ${NAS_AGE_RECIPIENTS:-}
     volumes:
       - backup-data:/data
       - /mnt/backups-nas:/mnt/backups-nas

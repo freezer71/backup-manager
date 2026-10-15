@@ -162,8 +162,9 @@ async function execute(project: Project, runId: number, stamp: string, deps: Run
         if (!(await isNasReady(cfg.nasDir))) {
           throw new Error(`NAS indisponible : ${cfg.nasDir} absent, non inscriptible ou sans fichier ${NAS_MARKER}`);
         }
-        await copyToNas(localBackupDir(cfg, project.slug, run), nasBackupDir(cfg, project.slug, run));
+        await copyToNas(localBackupDir(cfg, project.slug, run), nasBackupDir(cfg, project.slug, run), cfg.nasRecipients);
         nasStatus = "ok";
+        if (cfg.nasRecipients.length > 0) log += "Copie NAS chiffrée (age) : illisible sans la clé privée\n";
       } catch (e) {
         nasStatus = "failed";
         nasError = errorMessage(e);

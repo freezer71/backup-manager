@@ -1,4 +1,6 @@
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { AppConfig } from "@/lib/config";
@@ -46,6 +48,21 @@ describe("runProject", () => {
     expect(fs.existsSync(path.join(nasBackupDir(cfg, "pilote", run), run.files[0]))).toBe(true);
     expect(fs.readdirSync(path.join(cfg.dataDir, "tmp"))).toEqual([]);
     expect(send).not.toHaveBeenCalled();
+  });
+
+  it("avec une clé publique : copie NAS chiffrée, copie locale en clair, journal explicite", async () => {
+    const identity = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "bm-")), "identity.txt");
+    execFileSync("age-keygen", ["-o", identity], { stdio: "ignore" });
+    const recipient = execFileSync("age-keygen", ["-y", identity]).toString().trim();
+    const { db, cfg, deps, projectId } = setup();
+    cfg.nasRecipients = [recipient];
+    const run = getRun(db, (await runProject(projectId, "manual", deps))!)!;
+    expect(run).toMatchObject({ status: "success", nas_status: "ok" });
+    const nasFile = path.join(nasBackupDir(cfg, "pilote", run), run.files[0] + ".age");
+    expect(fs.existsSync(path.join(nasBackupDir(cfg, "pilote", run), run.files[0]))).toBe(false);
+    expect(execFileSync("age", ["-d", "-i", identity, nasFile]).toString()).toBe("dump\n");
+    expect(fs.readFileSync(path.join(localBackupDir(cfg, "pilote", run), run.files[0]), "utf8")).toBe("dump\n");
+    expect(run.log).toContain("chiffrée");
   });
 
   it("mesure la durée du script et celle de la copie NAS", async () => {

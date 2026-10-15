@@ -13,7 +13,7 @@ npm run dev
 
 Variables : `DB_ENCRYPTION_KEY` (≥ 32 caractères), `ADMIN_EMAIL`, `ADMIN_PASSWORD` (≥ 12, premier
 démarrage uniquement), `APP_URL`, `DATA_DIR` (défaut `/data`), `NAS_DIR` (défaut `/mnt/backups-nas`),
-`TZ` (défaut `Europe/Paris`).
+`TZ` (défaut `Europe/Paris`), `NAS_AGE_RECIPIENTS` (facultatif, voir « Chiffrement des copies NAS »).
 
 Sur un poste de développement, définissez aussi `DATA_DIR` et `NAS_DIR` dans `.env.local` (par
 exemple `./.data/app` et `./.data/nas`, ignorés par git) : les valeurs par défaut (`/data`, `/mnt/backups-nas`) ne
@@ -94,6 +94,26 @@ Tests : `npm test` (unitaires), `npm run test:int` (Docker requis), `npm run tes
    après une coupure), redémarrez le conteneur : sinon il continue de voir le dossier vide de
    l'hôte, et chaque copie NAS échoue (avec notification).
 
+### 1 bis. Chiffrement des copies NAS
+
+Avec `NAS_AGE_RECIPIENTS`, chaque fichier copié sur le NAS est chiffré avec [age](https://age-encryption.org)
+pour cette clé publique (`<fichier>.age`). Le NAS, ses administrateurs et quiconque vole ses disques ne voient
+que du chiffré ; l'application elle-même ne peut pas relire ses copies NAS. La copie locale (`/data`,
+téléchargeable depuis l'interface) reste en clair.
+
+1. Sur **votre** poste, pas sur le serveur :
+
+   ```bash
+   age-keygen -o ~/.config/backup-manager/age-identity.txt   # clé privée : à garder aussi dans le gestionnaire de mots de passe
+   age-keygen -y ~/.config/backup-manager/age-identity.txt   # clé publique : age1…
+   ```
+
+2. Dans Dokploy, ajouter `NAS_AGE_RECIPIENTS=age1…` (plusieurs clés : séparées par des virgules), puis
+   redéployer. Une valeur mal formée empêche l'application de démarrer plutôt que de copier en clair.
+3. Chaque run concerné affiche « Copie NAS chiffrée (age) » dans son journal.
+
+Perdre la clé privée rend les copies NAS illisibles : seules les copies locales restent alors utilisables.
+
 ### 2. DNS
 
 Créer un enregistrement DNS (`A` et/ou `AAAA`) pour le domaine choisi (ici `backups.example.com`) vers l'IP du serveur. Avec Cloudflare, le laisser en **DNS only** (nuage gris) : derrière le proxy Cloudflare, l'application verrait les IP de Cloudflare au lieu de celles des clients (limitation des tentatives faussée), et le challenge HTTP de Let's Encrypt passerait par Cloudflare.
@@ -132,6 +152,12 @@ l'application : ports publiés en mode `host`, ou `forwardedHeaders.trustedIPs` 
 d'entrée si un autre proxy est placé devant.
 
 ## Restaurer un dump
+
+Copie NAS chiffrée (`.age`) : la déchiffrer d'abord, avec la clé privée.
+
+```bash
+age -d -i ~/.config/backup-manager/age-identity.txt <fichier>.dump.age > <fichier>.dump
+```
 
 PostgreSQL (`.dump`) :
 

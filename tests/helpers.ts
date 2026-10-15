@@ -27,5 +27,6 @@ export function testConfig(): AppConfig {
     appUrl: "http://test",
     tz: "Europe/Paris",
     runnerSocket: null,
+    nasRecipients: [],
   };
 }
