@@ -13,6 +13,9 @@ const nextConfig: NextConfig = {
   output: "standalone",
   poweredByHeader: false,
   serverExternalPackages: ["better-sqlite3-multiple-ciphers", "@node-rs/argon2"],
+  // Aucune image ne passe par next/image, mais /_next/image répondait sans session : c'est là que tombent
+  // les failles d'exécution de code de Next (sharp, AVIF puis SVG, automne 2026). Désactivé, la route ne traite plus rien.
+  images: { unoptimized: true },
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },
