@@ -4,7 +4,7 @@ import { useActionState } from "react";
 import { FormError } from "@/app/components/FormError";
 import { SubmitButton } from "@/app/components/SubmitButton";
 import type { FormState } from "@/app/login/actions";
-import { changePasswordAction, resetTotpAction, saveWebhookAction, testWebhookAction } from "./actions";
+import { changePasswordAction, replaceTotpAction, saveWebhookAction, testWebhookAction } from "./actions";
 
 export function PasswordForm() {
   const [state, action] = useActionState(changePasswordAction, {});
@@ -19,13 +19,20 @@ export function PasswordForm() {
   );
 }
 
-export function ResetTotpForm() {
-  const [state, action] = useActionState(resetTotpAction, {});
+export function ReplaceTotpForm({ qr, secret }: { qr: string; secret: string }) {
+  const [state, action] = useActionState(replaceTotpAction, {});
   return (
     <form action={action} className="flex flex-col gap-3">
+      <input type="hidden" name="secret" value={secret} />
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={qr} alt="QR code de la nouvelle application" className="rounded-md bg-white p-2" width={176} height={176} />
+      <p className="text-[13px] break-all text-muted">
+        Clé manuelle : <span data-testid="totp-new-secret" className="font-mono text-fg">{secret}</span>
+      </p>
       <label className="flex flex-col gap-1.5">Mot de passe actuel<input type="password" name="current_password" autoComplete="current-password" required /></label>
+      <label className="flex flex-col gap-1.5">Code de la nouvelle application<input name="code" autoComplete="one-time-code" inputMode="numeric" required /></label>
       <FormError state={state} />
-      <div><SubmitButton variant="danger">Réinitialiser la double authentification</SubmitButton></div>
+      <div><SubmitButton variant="danger">Remplacer (déconnecte toutes les sessions)</SubmitButton></div>
     </form>
   );
 }

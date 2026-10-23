@@ -2,7 +2,7 @@ import { generateSync } from "otplib";
 import { describe, expect, it } from "vitest";
 import { beginLoginAttempt, loginDelayMs, markAttemptSuccess, rateLimitKey } from "@/lib/auth/rate-limit";
 import { createSession, deleteSession, findSession, markSessionTotpOk } from "@/lib/auth/session";
-import { checkTotp, newTotpSecret } from "@/lib/auth/totp";
+import { checkTotp, isTotpSecret, newTotpSecret } from "@/lib/auth/totp";
 import { testDb } from "./helpers";
 import type { DB } from "@/lib/db";
 
@@ -49,6 +49,14 @@ describe("TOTP", () => {
     const secret = newTotpSecret();
     const t = generateSync({ secret });
     expect(checkTotp(secret, `${t.slice(0, 3)} ${t.slice(3)}`, null).ok).toBe(true);
+  });
+
+  it("n'accepte comme nouveau secret que la forme générée : 32 caractères base32", () => {
+    expect(isTotpSecret(newTotpSecret())).toBe(true);
+    expect(isTotpSecret("A".repeat(16))).toBe(false);
+    expect(isTotpSecret("a".repeat(32))).toBe(false);
+    expect(isTotpSecret(`${"A".repeat(31)}1`)).toBe(false);
+    expect(isTotpSecret("A".repeat(33))).toBe(false);
   });
 });
 

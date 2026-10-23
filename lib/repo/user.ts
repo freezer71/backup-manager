@@ -30,18 +30,36 @@ export function setTotpPending(db: DB, secret: string): void {
   db.prepare("UPDATE user SET totp_pending_secret = ? WHERE id = 1").run(secret);
 }
 
-export function confirmTotp(db: DB, step: number): void {
-  db.prepare(
-    "UPDATE user SET totp_secret = totp_pending_secret, totp_pending_secret = NULL, totp_last_step = ? WHERE id = 1",
-  ).run(step);
+// Première activation uniquement : le secret en attente, s'il est toujours celui dont le code a été vérifié.
+export function confirmTotp(db: DB, verifiedSecret: string, step: number): boolean {
+  return (
+    db
+      .prepare(
+        "UPDATE user SET totp_secret = totp_pending_secret, totp_pending_secret = NULL, totp_last_step = ? WHERE id = 1 AND totp_secret IS NULL AND totp_pending_secret = ?",
+      )
+      .run(step, verifiedSecret).changes === 1
+  );
 }
 
-export function setTotpLastStep(db: DB, step: number): void {
-  db.prepare("UPDATE user SET totp_last_step = ? WHERE id = 1").run(step);
+// Changement d'application : l'ancien secret reste valable jusqu'à cette requête, le compte n'est jamais sans TOTP.
+export function replaceTotpSecret(db: DB, verifiedSecret: string, step: number): boolean {
+  return (
+    db
+      .prepare(
+        "UPDATE user SET totp_secret = ?, totp_pending_secret = NULL, totp_last_step = ? WHERE id = 1 AND totp_secret IS NOT NULL",
+      )
+      .run(verifiedSecret, step).changes === 1
+  );
 }
 
-export function resetTotp(db: DB): void {
-  db.prepare(
-    "UPDATE user SET totp_secret = NULL, totp_pending_secret = NULL, totp_last_step = NULL WHERE id = 1",
-  ).run();
+// Enregistre le pas d'un code accepté, en une seule requête : de deux requêtes parallèles qui ont validé le même
+// code avec un dernier pas lu trop tôt, une seule passe.
+export function claimTotpStep(db: DB, verifiedSecret: string, step: number): boolean {
+  return (
+    db
+      .prepare(
+        "UPDATE user SET totp_last_step = ? WHERE id = 1 AND totp_secret = ? AND (totp_last_step IS NULL OR totp_last_step < ?)",
+      )
+      .run(step, verifiedSecret, step).changes === 1
+  );
 }

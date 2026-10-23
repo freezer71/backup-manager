@@ -1,16 +1,23 @@
+import QRCode from "qrcode";
 import { PageHeader, Section } from "@/app/components/ui";
 import { requireSession } from "@/lib/auth/next-session";
+import { newTotpSecret, totpUri } from "@/lib/auth/totp";
 import { loadConfig } from "@/lib/config";
 import { getDb } from "@/lib/db";
 import { listAudit } from "@/lib/repo/audit";
 import { getSetting } from "@/lib/repo/settings";
-import { PasswordForm, ResetTotpForm, WebhookForm } from "./forms";
+import { getUser } from "@/lib/repo/user";
+import { PasswordForm, ReplaceTotpForm, WebhookForm } from "./forms";
 
 export default async function SettingsPage() {
   await requireSession();
   const db = getDb();
   const { tz } = loadConfig();
   const entries = listAudit(db, 100);
+  // Un secret neuf à chaque affichage, jamais stocké : il ne vit que dans ce formulaire jusqu'au remplacement.
+  // Stocké, n'importe quelle session (volée comprise) pourrait le lire avant que le propriétaire ne le scanne.
+  const newSecret = newTotpSecret();
+  const qr = await QRCode.toDataURL(totpUri(getUser(db)?.email ?? "", newSecret));
 
   return (
     <>
@@ -22,8 +29,11 @@ export default async function SettingsPage() {
         <Section title="Mot de passe">
           <PasswordForm />
         </Section>
-        <Section title="Double authentification">
-          <ResetTotpForm />
+        <Section
+          title="Double authentification"
+          description="Pour changer de téléphone : scannez ce QR code avec la nouvelle application. L'actuelle reste valable jusqu'à la validation."
+        >
+          <ReplaceTotpForm qr={qr} secret={newSecret} />
         </Section>
       </div>
       <Section title="Journal d'audit" panel={false}>

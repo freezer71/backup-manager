@@ -57,7 +57,12 @@ Tests : `npm test` (unitaires), `npm run test:int` (Docker requis), `npm run tes
   servie en HTTPS (domaine Dokploy avec Let's Encrypt), sinon la connexion ne fonctionne pas.
 - **Appareil de confiance.** Après une connexion complète, le navigateur est mémorisé 90 jours ; il
   n'est alors plus ralenti par les limites globales de connexion. Changer le mot de passe ou
-  réinitialiser la 2FA révoque tous les appareils.
+  l'application 2FA révoque tous les appareils.
+- **Changer d'application 2FA.** Dans Paramètres, la nouvelle application est validée (mot de passe
+  + code) avant de remplacer l'ancienne : le compte n'est jamais sans 2FA. Pas de réinitialisation
+  qui l'effacerait, sinon le mot de passe seul suffirait à lier un autre authentificateur. La clé
+  affichée change à chaque visite et n'est stockée qu'au remplacement : une session volée ne peut
+  pas lire à l'avance celle que vous allez scanner.
 - **Clé de chiffrement.** Sans `DB_ENCRYPTION_KEY`, la base est irrécupérable : conservez-la dans
   un gestionnaire de mots de passe.
 - **Réseau du runner.** Le compose crée le bridge `br-bm-runner`. Sur l'hôte, le pare-feu doit

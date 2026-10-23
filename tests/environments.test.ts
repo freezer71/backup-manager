@@ -10,7 +10,7 @@ import {
   upsertSecret,
 } from "@/lib/repo/environments";
 import { getSetting, setSetting } from "@/lib/repo/settings";
-import { confirmTotp, createUser, getUser, setTotpPending } from "@/lib/repo/user";
+import { claimTotpStep, confirmTotp, createUser, getUser, replaceTotpSecret, setTotpPending } from "@/lib/repo/user";
 import { ValidationError } from "@/lib/validation";
 import { testDb } from "./helpers";
 
@@ -89,7 +89,62 @@ describe("réglages, audit, utilisateur", () => {
     const db = testDb();
     createUser(db, "me@x.fr", "hash");
     setTotpPending(db, "SECRET");
-    confirmTotp(db, 42);
+    expect(confirmTotp(db, "SECRET", 42)).toBe(true);
     expect(getUser(db)).toMatchObject({ totp_secret: "SECRET", totp_pending_secret: null, totp_last_step: 42 });
+  });
+
+  it("n'active que le secret vérifié : un QR régénéré entre-temps ne l'est pas", () => {
+    const db = testDb();
+    createUser(db, "me@x.fr", "hash");
+    setTotpPending(db, "AUTRE");
+    expect(confirmTotp(db, "AFFICHÉ", 5)).toBe(false);
+    expect(getUser(db)).toMatchObject({ totp_secret: null, totp_pending_secret: "AUTRE" });
+  });
+
+  it("la première activation ne remplace jamais une 2FA déjà active", () => {
+    const db = testDb();
+    createUser(db, "me@x.fr", "hash");
+    setTotpPending(db, "ACTIF");
+    confirmTotp(db, "ACTIF", 1);
+    setTotpPending(db, "AUTRE");
+    expect(confirmTotp(db, "AUTRE", 5)).toBe(false);
+    expect(getUser(db)).toMatchObject({ totp_secret: "ACTIF", totp_last_step: 1 });
+  });
+
+  it("remplace le TOTP actif par le secret vérifié, sans jamais laisser le compte sans TOTP", () => {
+    const db = testDb();
+    createUser(db, "me@x.fr", "hash");
+    setTotpPending(db, "ANCIEN");
+    confirmTotp(db, "ANCIEN", 1);
+    expect(replaceTotpSecret(db, "NOUVEAU", 7)).toBe(true);
+    expect(getUser(db)).toMatchObject({ totp_secret: "NOUVEAU", totp_pending_secret: null, totp_last_step: 7 });
+  });
+
+  it("le remplacement exige une 2FA active : la première activation passe par la page dédiée", () => {
+    const db = testDb();
+    createUser(db, "me@x.fr", "hash");
+    expect(replaceTotpSecret(db, "NOUVEAU", 7)).toBe(false);
+    expect(getUser(db)).toMatchObject({ totp_secret: null });
+  });
+
+  it("un pas TOTP n'est enregistré qu'une fois : le même code envoyé deux fois en parallèle ne passe qu'une fois", () => {
+    const db = testDb();
+    createUser(db, "me@x.fr", "hash");
+    setTotpPending(db, "S");
+    confirmTotp(db, "S", 10);
+    expect(claimTotpStep(db, "S", 11)).toBe(true);
+    expect(claimTotpStep(db, "S", 11)).toBe(false);
+    expect(claimTotpStep(db, "S", 10)).toBe(false);
+    expect(claimTotpStep(db, "S", 12)).toBe(true);
+    expect(getUser(db)?.totp_last_step).toBe(12);
+  });
+
+  it("refuse le pas si le secret vérifié n'est plus le secret actif", () => {
+    const db = testDb();
+    createUser(db, "me@x.fr", "hash");
+    setTotpPending(db, "S");
+    confirmTotp(db, "S", 10);
+    expect(claimTotpStep(db, "ANCIEN", 11)).toBe(false);
+    expect(getUser(db)?.totp_last_step).toBe(10);
   });
 });

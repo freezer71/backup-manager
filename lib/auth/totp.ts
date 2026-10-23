@@ -6,6 +6,11 @@ export function newTotpSecret(): string {
   return generateSecret();
 }
 
+// Forme exacte de newTotpSecret (160 bits) : un secret renvoyé par le formulaire n'est accepté que sous cette forme.
+export function isTotpSecret(value: string): boolean {
+  return /^[A-Z2-7]{32}$/.test(value);
+}
+
 export function totpUri(email: string, secret: string): string {
   return generateURI({ issuer: "Backup Manager", label: email, secret });
 }

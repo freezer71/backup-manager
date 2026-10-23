@@ -18,7 +18,7 @@ import { issueTrustedDevice } from "@/lib/auth/trusted-device";
 import { checkTotp } from "@/lib/auth/totp";
 import { getDb } from "@/lib/db";
 import { audit } from "@/lib/repo/audit";
-import { confirmTotp, getUser, setTotpLastStep } from "@/lib/repo/user";
+import { claimTotpStep, confirmTotp, getUser } from "@/lib/repo/user";
 
 const MAX_EMAIL = 254;
 
@@ -75,8 +75,10 @@ export async function totpAction(_: FormState, fd: FormData): Promise<FormState>
   if (!attempt.allowed) return tooMany(attempt.retryAfterMs);
 
   const result = checkTotp(user.totp_secret, String(fd.get("code") ?? ""), user.totp_last_step);
-  if (!result.ok) {
-    audit(db, "login.totp_failed", user.email, ip);
+  // user.totp_last_step a été lu avant les await : seul l'enregistrement atomique du pas exclut le rejeu.
+  const accepted = result.ok && claimTotpStep(db, user.totp_secret, result.step);
+  if (!accepted) {
+    audit(db, result.ok ? "login.totp_replayed" : "login.totp_failed", user.email, ip);
     // Après 5 codes faux (délai TOTP actif pour cette IP), la session en attente est détruite : il faut ressaisir le mot de passe.
     if (loginDelayMs(db, ip, "totp", new Date(), { trusted }) > 0) {
       deleteSession(db, token);
@@ -86,7 +88,6 @@ export async function totpAction(_: FormState, fd: FormData): Promise<FormState>
     return { error: "Code incorrect." };
   }
   markAttemptSuccess(db, attempt.attemptId);
-  setTotpLastStep(db, result.step);
   const fullToken = markSessionTotpOk(db, token);
   if (!fullToken) {
     await clearSessionCookie();
@@ -110,8 +111,9 @@ export async function confirmTotpSetupAction(_: FormState, fd: FormData): Promis
   const attempt = beginLoginAttempt(db, ip, "totp", new Date(), { trusted });
   if (!attempt.allowed) return tooMany(attempt.retryAfterMs);
 
-  const result = checkTotp(user.totp_pending_secret, String(fd.get("code") ?? ""), null);
-  if (!result.ok) {
+  const pending = user.totp_pending_secret;
+  const result = checkTotp(pending, String(fd.get("code") ?? ""), null);
+  if (!result.ok || !confirmTotp(db, pending, result.step)) {
     audit(db, "totp.setup_failed", user.email, ip);
     if (loginDelayMs(db, ip, "totp", new Date(), { trusted }) > 0) {
       deleteSession(db, token);
@@ -121,7 +123,6 @@ export async function confirmTotpSetupAction(_: FormState, fd: FormData): Promis
     return { error: "Code incorrect. Vérifiez l'heure de votre téléphone." };
   }
   markAttemptSuccess(db, attempt.attemptId);
-  confirmTotp(db, result.step);
   const fullToken = markSessionTotpOk(db, token);
   if (!fullToken) {
     await clearSessionCookie();
