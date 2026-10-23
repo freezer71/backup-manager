@@ -25,6 +25,8 @@ services:
       RUNNER_SOCKET: /run/bm/runner.sock
       # Clé(s) publique(s) age : chaque copie NAS est chiffrée pour elles (README, « Chiffrement des copies NAS »).
       NAS_AGE_RECIPIENTS: ${NAS_AGE_RECIPIENTS:-}
+      # Proxys devant Traefik (ex. cloudflared) dont X-Forwarded-For est cru (README, « Derrière un tunnel »).
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
     volumes:
       - backup-data:/data
       - /mnt/backups-nas:/mnt/backups-nas

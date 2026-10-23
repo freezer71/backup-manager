@@ -13,7 +13,8 @@ npm run dev
 
 Variables : `DB_ENCRYPTION_KEY` (≥ 32 caractères), `ADMIN_EMAIL`, `ADMIN_PASSWORD` (≥ 12, premier
 démarrage uniquement), `APP_URL`, `DATA_DIR` (défaut `/data`), `NAS_DIR` (défaut `/mnt/backups-nas`),
-`TZ` (défaut `Europe/Paris`), `NAS_AGE_RECIPIENTS` (facultatif, voir « Chiffrement des copies NAS »).
+`TZ` (défaut `Europe/Paris`), `NAS_AGE_RECIPIENTS` (facultatif, voir « Chiffrement des copies NAS »),
+`TRUSTED_PROXIES` (facultatif, voir « Derrière un tunnel »).
 
 Sur un poste de développement, définissez aussi `DATA_DIR` et `NAS_DIR` dans `.env.local` (par
 exemple `./.data/app` et `./.data/nas`, ignorés par git) : les valeurs par défaut (`/data`, `/mnt/backups-nas`) ne
@@ -116,7 +117,7 @@ Perdre la clé privée rend les copies NAS illisibles : seules les copies locale
 
 ### 2. DNS
 
-Créer un enregistrement DNS (`A` et/ou `AAAA`) pour le domaine choisi (ici `backups.example.com`) vers l'IP du serveur. Avec Cloudflare, le laisser en **DNS only** (nuage gris) : derrière le proxy Cloudflare, l'application verrait les IP de Cloudflare au lieu de celles des clients (limitation des tentatives faussée), et le challenge HTTP de Let's Encrypt passerait par Cloudflare.
+Créer un enregistrement DNS (`A` et/ou `AAAA`) pour le domaine choisi (ici `backups.example.com`) vers l'IP du serveur. Avec Cloudflare, le laisser en **DNS only** (nuage gris) : derrière le proxy Cloudflare, l'application verrait les IP de Cloudflare au lieu de celles des clients (limitation des tentatives faussée), et le challenge HTTP de Let's Encrypt passerait par Cloudflare. Pour passer par un tunnel Cloudflare, voir « Derrière un tunnel ».
 
 ### 3. Dokploy
 
@@ -150,6 +151,21 @@ réelle du client : la limitation des tentatives serait alors partagée par tout
 attaquant bloquerait votre propre connexion). Configurez Traefik avant d'utiliser
 l'application : ports publiés en mode `host`, ou `forwardedHeaders.trustedIPs` sur le point
 d'entrée si un autre proxy est placé devant.
+
+### Derrière un tunnel
+
+Avec un tunnel Cloudflare (`cloudflared` → Traefik), Traefik doit faire confiance au réseau du
+tunnel (`forwardedHeaders.trustedIPs: [10.0.1.0/24]` sur le point d'entrée, `dokploy-network`
+chez Dokploy), et l'application aussi :
+
+```
+TRUSTED_PROXIES=10.0.1.0/24
+```
+
+`X-Forwarded-For` est alors lu depuis la droite : les adresses de ces plages sont sautées, la
+première qui n'en fait pas partie est le client. Sans cette variable, l'application garde la
+dernière valeur, c'est-à-dire l'adresse de `cloudflared` pour tout le monde. Refaire ensuite la
+vérification ci-dessus.
 
 ## Restaurer un dump
 

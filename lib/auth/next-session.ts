@@ -2,6 +2,7 @@ import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { getDb } from "@/lib/db";
 import { getUser } from "@/lib/repo/user";
+import { clientIpFromHeaders, parseTrustedProxies } from "./client-ip";
 import { findSession, type Session } from "./session";
 import { isTrustedDevice, TRUSTED_DEVICE_TTL_MS } from "./trusted-device";
 
@@ -11,13 +12,13 @@ export const SESSION_COOKIE = process.env.NODE_ENV === "production" ? "__Host-bm
 // Cookie d'appareil de confiance : identifie le navigateur (pas la session), survit à la déconnexion.
 export const TRUSTED_COOKIE = process.env.NODE_ENV === "production" ? "__Host-bm_device" : "bm_device";
 
-// Traefik remplace l'en-tête X-Forwarded-For venant d'un client non fiable :
-// on prend la dernière valeur, ajoutée par Traefik.
+const TRUSTED_PROXIES = parseTrustedProxies(process.env.TRUSTED_PROXIES);
+
+// Traefik remplace l'en-tête X-Forwarded-For venant d'un client non fiable, et le complète quand la requête
+// arrive par un proxy de confiance (cloudflared) : voir clientIpFromHeaders.
 export async function getClientIp(): Promise<string> {
   const h = await headers();
-  const forwarded = h.get("x-forwarded-for");
-  if (forwarded) return forwarded.split(",").at(-1)!.trim();
-  return h.get("x-real-ip") ?? "local";
+  return clientIpFromHeaders(h.get("x-forwarded-for"), h.get("x-real-ip"), TRUSTED_PROXIES);
 }
 
 export async function setSessionCookie(token: string, maxAgeMs: number): Promise<void> {
