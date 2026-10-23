@@ -6,10 +6,13 @@ services:
     restart: unless-stopped
     # tini en PID 1 : récupère les processus orphelins ; Node ne reçoit plus les signaux en PID 1.
     init: true
-    # Code en lecture seule (il appartient à root dans l'image) ; seuls /data, le NAS et /tmp sont inscriptibles.
+    # Code en lecture seule (il appartient à root dans l'image) ; seuls /data, le NAS, /tmp et le cache Next sont inscriptibles.
     read_only: true
     tmpfs:
       - /tmp:size=64m,mode=1777
+      # Next crée ce dossier à chaque requête /_next/image, même désactivée (404) : sans lui, chaque requête
+      # journalisait une unhandledRejection ENOENT. Petit et en mémoire : rien d'utile n'y est écrit.
+      - /app/.next/cache:size=16m,uid=1001,gid=1001,mode=0700
     cap_drop:
       - ALL
     security_opt:
