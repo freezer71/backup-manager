@@ -1,5 +1,5 @@
 // Emblème : trois sauvegardes empilées, la plus récente en vert, les plus anciennes s'estompent.
-// Même dessin que app/icon.svg, sans le fond.
+// Les icônes de l'onglet et de l'écran d'accueil (app/icon.png, apple-icon.png) portent la médaille de Mnémosyne de l'identité Kouma Home.
 export function LogoMark({ className = "size-5" }: { className?: string }) {
   return (
     <svg viewBox="6 5.5 20 20.5" className={className} aria-hidden="true">
