@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { connection } from "next/server";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -8,7 +9,9 @@ const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono"
 
 export const metadata: Metadata = { title: "Backup Manager" };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+// Rendu dynamique partout (y compris la page 404) : chaque page reçoit le nonce de la CSP de sa requête (proxy.ts).
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  await connection();
   return (
     <html lang="fr" className={`${geist.variable} ${geistMono.variable}`}>
       <body>{children}</body>

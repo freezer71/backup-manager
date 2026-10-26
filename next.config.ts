@@ -1,11 +1,13 @@
 import type { NextConfig } from "next";
 
-// Pas de CSP pour les scripts : elle casserait Next sans nonces. frame-ancestors seul protège du clickjacking.
+// La CSP (avec nonce, différente à chaque requête) est posée par proxy.ts sur les pages.
 const securityHeaders = [
   { key: "X-Frame-Options", value: "DENY" },
-  { key: "Content-Security-Policy", value: "frame-ancestors 'none'" },
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "Referrer-Policy", value: "same-origin" },
+  { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
+  { key: "Cross-Origin-Resource-Policy", value: "same-origin" },
+  { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), usb=(), payment=()" },
   ...(process.env.NODE_ENV === "production" ? [{ key: "Strict-Transport-Security", value: "max-age=31536000" }] : []),
 ];
 

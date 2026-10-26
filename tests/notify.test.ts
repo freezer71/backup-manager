@@ -1,7 +1,7 @@
 import { testConfig, testDb } from "./helpers";
 import { setSetting } from "@/lib/repo/settings";
 import { describe, expect, it, vi } from "vitest";
-import { notifyProblem, sendNotification } from "@/lib/runner/notify";
+import { isPublicAddress, notifyProblem, safeFetch, sendNotification, webhookUrlProblem } from "@/lib/runner/notify";
 
 const payload = { project: "pilote", status: "failed", message: "code 1", runUrl: "https://b/projects/1/runs/2" };
 
@@ -50,5 +50,33 @@ describe("secrets dans les erreurs de notification", () => {
     expect(spy).toHaveBeenCalled();
     expect(JSON.stringify(spy.mock.calls.map((c) => c.map((x) => (x instanceof Error ? [x.message, x.stack, Object.entries(x)] : x))))).not.toContain("SECRETTOKEN");
     spy.mockRestore();
+  });
+});
+
+describe("destination du webhook", () => {
+  it("n'accepte qu'une URL https publique, sans identifiants", () => {
+    expect(webhookUrlProblem("https://ntfy.sh/mes-backups")).toBeNull();
+    expect(webhookUrlProblem("https://discord.com/api/webhooks/1/x")).toBeNull();
+    expect(webhookUrlProblem("http://ntfy.sh/x")).toMatch(/https/);
+    expect(webhookUrlProblem("https://u:p@ntfy.sh/x")).toMatch(/Identifiants/);
+    expect(webhookUrlProblem("https://127.0.0.1/x")).toMatch(/[Pp]rivée/);
+    expect(webhookUrlProblem("https://10.0.1.5:3000/x")).toMatch(/[Pp]rivée/);
+    expect(webhookUrlProblem("https://[::1]/x")).toMatch(/[Pp]rivée/);
+    expect(webhookUrlProblem("https://localhost/x")).toMatch(/[Pp]rivée/);
+    expect(webhookUrlProblem("https://backup-manager:3000/x")).toMatch(/Nom de domaine/);
+    expect(webhookUrlProblem("pas une url")).toMatch(/URL invalide/);
+  });
+
+  it("classe les adresses privées, locales et réservées", () => {
+    for (const ip of ["10.1.2.3", "172.20.0.1", "192.168.1.1", "127.0.0.1", "169.254.169.254", "100.64.0.1", "0.0.0.0", "::1", "fd00::1", "fe80::1", "::ffff:10.0.0.1"]) {
+      expect(isPublicAddress(ip), ip).toBe(false);
+    }
+    for (const ip of ["1.1.1.1", "203.0.114.1", "2606:4700:4700::1111"]) expect(isPublicAddress(ip), ip).toBe(true);
+  });
+
+  it("le transport par défaut refuse une résolution DNS vers une adresse privée (rebinding)", async () => {
+    await expect(
+      safeFetch("https://interne.example/x", { method: "POST", body: "x" }, { lookup: async () => "10.0.1.7" }),
+    ).rejects.toThrow(/privée/);
   });
 });

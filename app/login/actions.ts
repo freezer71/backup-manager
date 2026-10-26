@@ -19,10 +19,12 @@ import { checkTotp } from "@/lib/auth/totp";
 import { getDb } from "@/lib/db";
 import { audit } from "@/lib/repo/audit";
 import { claimTotpStep, confirmTotp, getUser } from "@/lib/repo/user";
+import { securityEvent } from "@/lib/security-events";
 
 const MAX_EMAIL = 254;
 
-export type FormState = { error?: string; ok?: string };
+// reauth : l'action demande un code TOTP récent (voir hasRecentConfirmation).
+export type FormState = { error?: string; ok?: string; reauth?: boolean };
 
 function tooMany(ms: number): FormState {
   return { error: `Trop de tentatives. Réessayez dans ${Math.ceil(ms / 1000)} s.` };
@@ -32,7 +34,7 @@ function tooMany(ms: number): FormState {
 async function trustThisDevice(db: ReturnType<typeof getDb>, ip: string, email: string): Promise<void> {
   const userAgent = (await headers()).get("user-agent");
   await setTrustedDeviceCookie(issueTrustedDevice(db, { userAgent }));
-  audit(db, "device.trusted", email, ip);
+  securityEvent(db, "device.trusted", email, ip);
 }
 
 export async function loginAction(_: FormState, fd: FormData): Promise<FormState> {

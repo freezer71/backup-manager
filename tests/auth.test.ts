@@ -1,7 +1,16 @@
 import { generateSync } from "otplib";
 import { describe, expect, it } from "vitest";
 import { beginLoginAttempt, loginDelayMs, markAttemptSuccess, rateLimitKey } from "@/lib/auth/rate-limit";
-import { createSession, deleteSession, findSession, markSessionTotpOk } from "@/lib/auth/session";
+import {
+  confirmSession,
+  createSession,
+  deleteSession,
+  deleteSessionById,
+  findSession,
+  isRecentlyConfirmed,
+  listSessions,
+  markSessionTotpOk,
+} from "@/lib/auth/session";
 import { checkTotp, isTotpSecret, newTotpSecret } from "@/lib/auth/totp";
 import { testDb } from "./helpers";
 import type { DB } from "@/lib/db";
@@ -203,7 +212,10 @@ describe("sessions", () => {
 
     const token2 = createSession(db, { ip: null, userAgent: null }, t0);
     const upgraded = markSessionTotpOk(db, token2, t0)!;
-    expect(findSession(db, upgraded, new Date(t0.getTime() + 6 * 86_400_000))).toMatchObject({ totp_ok: true });
+    // Utilisée toutes les 3 h : jamais inactive, mais limitée à 7 jours au total.
+    for (let h = 3; h <= 6 * 24; h += 3) {
+      expect(findSession(db, upgraded, new Date(t0.getTime() + h * 3_600_000))).toMatchObject({ totp_ok: true });
+    }
     expect(findSession(db, upgraded, new Date(t0.getTime() + 8 * 86_400_000))).toBeNull();
     expect(findSession(db, token2, t0)).toBeNull();
   });
@@ -239,5 +251,47 @@ describe("sessions", () => {
     createSession(db, { ip: null, userAgent: null }, later);
     const count = db.prepare("SELECT COUNT(*) AS n FROM sessions").get() as { n: number };
     expect(count.n).toBe(1);
+  });
+});
+
+describe("sessions : inactivité et confirmation récente", () => {
+  const t0 = new Date("2026-10-04T10:00:00Z");
+  const at = (minutes: number) => new Date(t0.getTime() + minutes * 60_000);
+
+  it("expire après 4 h sans activité", () => {
+    const db = testDb();
+    const token = markSessionTotpOk(db, createSession(db, { ip: null, userAgent: null }, t0), t0)!;
+    expect(findSession(db, token, at(3 * 60))).not.toBeNull();
+    expect(findSession(db, token, at(6 * 60))).not.toBeNull(); // 3 h après la dernière activité
+    expect(findSession(db, token, at(10 * 60 + 1))).toBeNull(); // plus de 4 h après
+  });
+
+  it("une connexion complète vaut confirmation pendant 10 min, renouvelable par un code", () => {
+    const db = testDb();
+    const token = markSessionTotpOk(db, createSession(db, { ip: null, userAgent: null }, t0), t0)!;
+    expect(isRecentlyConfirmed(findSession(db, token, at(9))!, at(9))).toBe(true);
+    expect(isRecentlyConfirmed(findSession(db, token, at(11))!, at(11))).toBe(false);
+    confirmSession(db, findSession(db, token, at(30))!.id, at(30));
+    expect(isRecentlyConfirmed(findSession(db, token, at(35))!, at(35))).toBe(true);
+  });
+
+  it("une session en attente de TOTP n'est jamais confirmée", () => {
+    const db = testDb();
+    const token = createSession(db, { ip: null, userAgent: null }, t0);
+    const s = findSession(db, token, t0)!;
+    confirmSession(db, s.id, t0);
+    expect(isRecentlyConfirmed(findSession(db, token, t0)!, t0)).toBe(false);
+  });
+
+  it("liste les sessions ouvertes et en révoque une", () => {
+    const db = testDb();
+    const a = markSessionTotpOk(db, createSession(db, { ip: "203.0.113.1", userAgent: "Firefox" }, t0), t0)!;
+    const b = markSessionTotpOk(db, createSession(db, { ip: "203.0.113.2", userAgent: "Safari" }, t0), t0)!;
+    createSession(db, { ip: "198.51.100.9", userAgent: "attente" }, t0); // en attente de TOTP : non listée
+    const list = listSessions(db, at(1));
+    expect(list.map((s) => s.ip).sort()).toEqual(["203.0.113.1", "203.0.113.2"]);
+    deleteSessionById(db, findSession(db, b, at(1))!.id);
+    expect(findSession(db, b, at(2))).toBeNull();
+    expect(findSession(db, a, at(2))).not.toBeNull();
   });
 });

@@ -3,18 +3,27 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { FormState } from "@/app/login/actions";
-import { clearSessionCookie, getClientIp, isCurrentDeviceTrusted, requireSession } from "@/lib/auth/next-session";
+import {
+  clearSessionCookie,
+  currentSession,
+  getClientIp,
+  hasRecentConfirmation,
+  isCurrentDeviceTrusted,
+  reauthRequired,
+  requireSession,
+} from "@/lib/auth/next-session";
 import { hashPassword, verifyPassword } from "@/lib/auth/password";
 import { beginLoginAttempt, markAttemptSuccess } from "@/lib/auth/rate-limit";
-import { deleteAllSessions } from "@/lib/auth/session";
+import { deleteAllSessions, deleteSessionById } from "@/lib/auth/session";
 import { checkTotp, isTotpSecret } from "@/lib/auth/totp";
-import { revokeAllTrustedDevices } from "@/lib/auth/trusted-device";
+import { revokeAllTrustedDevices, revokeTrustedDevice } from "@/lib/auth/trusted-device";
 import { loadConfig } from "@/lib/config";
 import { getDb } from "@/lib/db";
 import { audit } from "@/lib/repo/audit";
 import { getSetting, setSetting } from "@/lib/repo/settings";
 import { getUser, replaceTotpSecret, setPasswordHash } from "@/lib/repo/user";
-import { sendNotification } from "@/lib/runner/notify";
+import { sendNotification, webhookLabel, webhookUrlProblem } from "@/lib/runner/notify";
+import { securityEvent } from "@/lib/security-events";
 
 // Vérifie le mot de passe actuel avec la même limitation qu'une connexion :
 // une session volée ne doit pas permettre de deviner le mot de passe sans limite.
@@ -45,7 +54,7 @@ export async function changePasswordAction(_: FormState, fd: FormData): Promise<
   setPasswordHash(db, await hashPassword(next));
   deleteAllSessions(db);
   revokeAllTrustedDevices(db);
-  audit(db, "password.change", null, await getClientIp());
+  securityEvent(db, "password.change", null, await getClientIp());
   await clearSessionCookie();
   redirect("/login");
 }
@@ -72,18 +81,24 @@ export async function replaceTotpAction(_: FormState, fd: FormData): Promise<For
   markAttemptSuccess(db, attempt.attemptId);
   deleteAllSessions(db);
   revokeAllTrustedDevices(db);
-  audit(db, "totp.replaced", null, ip);
+  securityEvent(db, "totp.replaced", null, ip);
   await clearSessionCookie();
   redirect("/login");
 }
 
 export async function saveWebhookAction(_: FormState, fd: FormData): Promise<FormState> {
   await requireSession();
-  const url = String(fd.get("webhook_url") ?? "").trim();
-  if (url && !/^https?:\/\//.test(url)) return { error: "L'URL doit commencer par http:// ou https://" };
+  if (!(await hasRecentConfirmation())) return reauthRequired();
+  const remove = fd.get("remove") === "1";
+  const url = remove ? "" : String(fd.get("webhook_url") ?? "").trim();
+  if (!remove && !url) return { error: "Saisissez l'URL du webhook." };
+  const problem = url ? webhookUrlProblem(url) : null;
+  if (problem) return { error: problem };
   const db = getDb();
+  const previous = getSetting(db, "webhook_url");
   setSetting(db, "webhook_url", url || null);
-  audit(db, "webhook.update", null, await getClientIp());
+  // L'ancien webhook est prévenu aussi : le remplacer ne suffit pas à faire taire les alertes.
+  securityEvent(db, "webhook.update", url ? webhookLabel(url) : "supprimé", await getClientIp(), previous ? [previous] : []);
   revalidatePath("/settings");
   return { ok: url ? "Webhook enregistré." : "Webhook supprimé." };
 }
@@ -98,4 +113,26 @@ export async function testWebhookAction(): Promise<FormState> {
   } catch (e) {
     return { error: `Échec : ${e instanceof Error ? e.message : "erreur inconnue"}` };
   }
+}
+
+// Révoquer la session courante revient à se déconnecter.
+export async function revokeSessionAction(id: number): Promise<void> {
+  await requireSession();
+  const db = getDb();
+  const current = await currentSession();
+  deleteSessionById(db, id);
+  audit(db, "session.revoked", String(id), await getClientIp());
+  if (current?.session.id === id) {
+    await clearSessionCookie();
+    redirect("/login");
+  }
+  revalidatePath("/settings");
+}
+
+export async function revokeDeviceAction(id: number): Promise<void> {
+  await requireSession();
+  const db = getDb();
+  revokeTrustedDevice(db, id);
+  audit(db, "device.revoked", String(id), await getClientIp());
+  revalidatePath("/settings");
 }
