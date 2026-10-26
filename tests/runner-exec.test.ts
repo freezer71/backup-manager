@@ -73,6 +73,12 @@ describe("makeMasker", () => {
     expect(mask("password p%40ssw0rd rejected")).toBe(`password ${MASK} rejected`);
     expect(mask("abc reste visible (moins de 4 caractères)")).toBe("abc reste visible (moins de 4 caractères)");
   });
+
+  it("masque la valeur encodée en base64", () => {
+    const mask = makeMasker(["jeton-tres-secret?"]);
+    expect(mask(`Authorization: Basic ${Buffer.from("jeton-tres-secret?").toString("base64")}`)).toBe(`Authorization: Basic ${MASK}`);
+    expect(mask(`t=${Buffer.from("jeton-tres-secret?").toString("base64url")}`)).toBe(`t=${MASK}`);
+  });
 });
 
 describe("masquage des secrets multi-lignes", () => {

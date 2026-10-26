@@ -1,5 +1,6 @@
 import { generateSync } from "otplib";
 import { describe, expect, it } from "vitest";
+import { hashPassword, needsRehash, verifyPassword } from "@/lib/auth/password";
 import { beginLoginAttempt, loginDelayMs, markAttemptSuccess, rateLimitKey } from "@/lib/auth/rate-limit";
 import {
   confirmSession,
@@ -293,5 +294,16 @@ describe("sessions : inactivité et confirmation récente", () => {
     deleteSessionById(db, findSession(db, b, at(1))!.id);
     expect(findSession(db, b, at(2))).toBeNull();
     expect(findSession(db, a, at(2))).not.toBeNull();
+  });
+});
+
+describe("mot de passe", () => {
+  it("argon2id 64 Mio / 3 passes ; un ancien haché est à recalculer", async () => {
+    const h = await hashPassword("un-mot-de-passe-long");
+    expect(h).toMatch(/^\$argon2id\$v=19\$m=65536,t=3,p=1\$/);
+    expect(needsRehash(h)).toBe(false);
+    expect(await verifyPassword(h, "un-mot-de-passe-long")).toBe(true);
+    expect(needsRehash("$argon2id$v=19$m=19456,t=2,p=1$c2FsdHNhbHQ$aGFzaA")).toBe(true);
+    expect(needsRehash("$2b$10$bcrypt")).toBe(true);
   });
 });

@@ -65,6 +65,7 @@ describe.skipIf(!hasDocker())("sandbox des scripts (conteneur runner)", () => {
       "--read-only", "--tmpfs", "/tmp:size=64m,mode=1777", "--tmpfs", "/work", "--tmpfs", "/run/bm",
       "--cap-drop", "ALL",
       ...["CHOWN", "SETUID", "SETGID", "KILL", "SYS_ADMIN", "NET_ADMIN", "NET_BIND_SERVICE"].flatMap((c) => ["--cap-add", c]),
+      "-e", "RUN_MAX_BYTES=8000000", // 8 Mo : de quoi tester la limite de taille
       "--security-opt", "no-new-privileges:true",
       "--security-opt", `seccomp=${path.join(ROOT, "deploy/seccomp/runner.json")}`,
       "-v", `${path.join(ROOT, "tests/sandbox/client.mjs")}:/client.mjs:ro`,
@@ -194,4 +195,13 @@ describe.skipIf(!hasDocker())("sandbox des scripts (conteneur runner)", () => {
     const owners = docker("exec", RUNNER, "sh", "-c", "for s in /proc/[0-9]*/status; do awk '/^Uid:/{print $2}' $s 2>/dev/null; done");
     expect(owners.split("\n")).not.toContain(uid);
   });
+
+  it("arrête un run qui écrit plus que la taille maximale", async () => {
+    const started = Date.now();
+    const r = await run('head -c 20000000 /dev/zero > "$TMPDIR/gros"; sleep 60; echo "FUITE fini"', { networkSecret: null });
+    expect(Date.now() - started).toBeLessThan(40_000);
+    expect(r.result?.exitCode).not.toBe(0);
+    expect(r.result?.log).toContain("Arrêté : plus de");
+    expect(r.result?.log).not.toContain("FUITE");
+  }, 60_000);
 });

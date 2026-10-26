@@ -41,7 +41,11 @@ const MAX_REQUEST_BYTES = 4_000_000;
 const UID_BASE = 100_000;
 
 // sandbox : false seulement hors production (tests sans root) ; le script tourne alors sans isolement réseau.
-export type RunnerOptions = { workDir: string; appGid: number; sandbox: boolean; resolver?: Resolver };
+// maxRunBytes : taille maximale de $OUTPUT_DIR + $TMPDIR d'un run (le volume /work n'a pas de quota).
+export type RunnerOptions = { workDir: string; appGid: number; sandbox: boolean; resolver?: Resolver; maxRunBytes?: number };
+
+const DEFAULT_MAX_RUN_BYTES = 50 * 1024 ** 3;
+const USAGE_CHECK_MS = 10_000;
 
 function isRoot(): boolean {
   return process.getuid?.() === 0;
@@ -88,6 +92,23 @@ function asRunUser(runId: number, args: string[], cwd: string): Promise<void> {
     });
     child.on("error", () => resolve());
     child.on("exit", () => resolve());
+  });
+}
+
+// Taille de work + out, mesurée sous l'uid du run (root sans CAP_DAC_READ_SEARCH ne peut pas les parcourir).
+function runUsageBytes(runId: number, base: string): Promise<number> {
+  return new Promise((resolve) => {
+    const child = spawn("du", ["-s", "-B1", "-x", "work", "out"], {
+      cwd: base,
+      uid: runUid(runId),
+      gid: runUid(runId),
+      env: { PATH: "/usr/bin:/bin" } as Record<string, string> as NodeJS.ProcessEnv,
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    let out = "";
+    child.stdout.on("data", (d: Buffer) => (out += d.toString()));
+    child.on("error", () => resolve(0));
+    child.on("close", () => resolve(out.split("\n").reduce((sum, line) => sum + (Number(line.split("\t")[0]) || 0), 0)));
   });
 }
 
@@ -163,6 +184,20 @@ async function handleRun(opts: RunnerOptions, req: RunRequest, send: (m: RunnerM
 
   let relays: Relays | null = null;
   let result: ExecResult;
+  // Au-delà de la taille maximale, le run est arrêté (sinon un script remplirait le disque de l'hôte, /data compris).
+  const maxBytes = opts.maxRunBytes ?? DEFAULT_MAX_RUN_BYTES;
+  let oversized = false;
+  const watchdog =
+    dirs.uid === undefined
+      ? undefined
+      : setInterval(() => {
+          void runUsageBytes(req.runId, dirs.base).then((bytes) => {
+            if (bytes > maxBytes && !oversized) {
+              oversized = true;
+              void killRunUser(req.runId);
+            }
+          });
+        }, USAGE_CHECK_MS);
   try {
     if (opts.sandbox && dirs.uid !== undefined) {
       // chmod explicite : l'umask du runner (027) retirerait la lecture au script.
@@ -205,7 +240,16 @@ async function handleRun(opts: RunnerOptions, req: RunRequest, send: (m: RunnerM
       });
     }
   } finally {
+    clearInterval(watchdog);
     relays?.close();
+  }
+  if (oversized) {
+    const limit = maxBytes >= 1024 ** 3 ? `${Math.round(maxBytes / 1024 ** 3)} Gio` : `${Math.round(maxBytes / 1024 ** 2)} Mio`;
+    result = {
+      ...result,
+      exitCode: result.exitCode === 0 ? 1 : result.exitCode,
+      log: result.log + `[runner] Arrêté : plus de ${limit} écrits dans $OUTPUT_DIR et $TMPDIR\n`,
+    };
   }
   // Plus rien ne doit tourner (ni modifier les sorties) pendant que l'application les copie.
   await killRunUser(req.runId);
@@ -293,6 +337,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     workDir: process.env.WORK_DIR || "/work",
     appGid: Number(process.env.APP_GID || 1001),
     sandbox: isRoot(),
+    maxRunBytes: process.env.RUN_MAX_BYTES ? Number(process.env.RUN_MAX_BYTES) : undefined,
   };
   startRunner(socketPath, opts).then(
     () => console.log(`[runner] prêt sur ${socketPath}${opts.sandbox ? " (sandbox par run)" : " (SANS sandbox)"}`),

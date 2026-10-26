@@ -13,7 +13,7 @@ npm run dev
 
 Variables : `DB_ENCRYPTION_KEY` (≥ 32 caractères), `ADMIN_EMAIL`, `ADMIN_PASSWORD` (≥ 12, premier
 démarrage uniquement), `APP_URL`, `DATA_DIR` (défaut `/data`), `NAS_DIR` (défaut `/mnt/backups-nas`),
-`TZ` (défaut `Europe/Paris`), `NAS_AGE_RECIPIENTS` (facultatif, voir « Chiffrement des copies NAS »),
+`TZ` (défaut `Europe/Paris`), `NAS_AGE_RECIPIENTS` (obligatoire en production, voir « Chiffrement des copies NAS »),
 `TRUSTED_PROXIES` (facultatif, voir « Derrière un tunnel »).
 
 Sur un poste de développement, définissez aussi `DATA_DIR` et `NAS_DIR` dans `.env.local` (par
@@ -33,6 +33,13 @@ Tests : `npm test` (unitaires), `npm run test:int` (Docker requis), `npm run tes
   (100000 + id du run) : un script ne lit ni l'environnement ni les fichiers d'un autre run, et ne
   peut pas joindre le socket du runner. À la fin du run, tout ce qui tourne encore sous cet uid est
   tué (y compris un démon sorti du groupe avec `setsid`).
+- **Sandbox par run** (bubblewrap, voir « Sandbox des scripts ») : le script ne voit que ses propres
+  processus, n'écrit que dans `$OUTPUT_DIR` et `$TMPDIR` (tout le reste est en lecture seule), et
+  n'a **aucun réseau** sauf vers la base désignée par le champ « Secret contenant l'URL de la base »
+  du projet (hôte et port de cette URL uniquement, pas de DNS). Un projet sans ce champ n'a aucun
+  réseau.
+- `$OUTPUT_DIR` + `$TMPDIR` sont limités à 50 Gio par run (`RUN_MAX_BYTES` sur le runner) : au-delà,
+  le run est arrêté.
 - Seuls les fichiers et dossiers réels de `$OUTPUT_DIR` sont gardés ; les liens symboliques sont
   ignorés (et listés dans le journal).
 - En développement (sans `RUNNER_SOCKET`), le script tourne dans le processus de l'application,
@@ -70,9 +77,24 @@ Tests : `npm test` (unitaires), `npm run test:int` (Docker requis), `npm run tes
   lui-même. Sur le homelab, c'est fait par `/usr/local/sbin/homelab-firewall` (chaînes
   `HOMELAB-RUNNER` dans `DOCKER-USER` et `HOMELAB-RUNNER-IN` dans `INPUT`, interfaces `br-bm+`).
   Le runner utilise 1.1.1.1 et 9.9.9.9 comme DNS, puisque le résolveur de la box est sur le LAN.
-- **Conteneurs durcis.** Les deux conteneurs sont en lecture seule (`read_only`), sans capacités
-  (le runner garde seulement CHOWN, SETUID, SETGID et KILL), avec `no-new-privileges` et des limites
-  de mémoire et de processus. Le code appartient à root dans les images.
+- **Conteneurs durcis.** Les deux conteneurs sont en lecture seule (`read_only`), avec
+  `no-new-privileges` et des limites de mémoire et de processus. L'application n'a aucune capacité.
+  Le runner garde CHOWN, SETUID, SETGID et KILL, plus SYS_ADMIN, NET_ADMIN et NET_BIND_SERVICE pour
+  construire la sandbox de chaque run ; en contrepartie, il tourne sous un profil seccomp
+  (`deploy/seccomp/runner.json`) et un profil AppArmor (`bm-runner`) sur mesure. Le code appartient
+  à root dans les images.
+- **Code 2FA récent pour les actions sensibles.** Afficher, copier, modifier ou supprimer un secret,
+  créer, modifier ou supprimer un projet, supprimer un environnement, changer le webhook et
+  télécharger un backup demandent un code TOTP saisi depuis moins de 10 minutes. Une session volée
+  seule ne lit donc aucun secret. Les sessions expirent après 4 h d'inactivité ; Paramètres liste les
+  sessions et les appareils de confiance, révocables.
+- **Alertes de sécurité.** Le webhook reçoit, en plus des résultats des runs, une alerte pour chaque
+  événement sensible (nouvel appareil, secret affiché ou modifié, script ou réseau d'un projet
+  modifié, téléchargement, mot de passe ou 2FA changés). Changer le webhook prévient aussi l'ancien.
+  Le webhook doit être en `https://` vers une adresse publique (ni LAN, ni réseau Docker) ; l'URL
+  enregistrée n'est plus jamais réaffichée.
+- **CSP.** Chaque page porte une Content-Security-Policy avec nonce (`proxy.ts`) : seuls les scripts
+  de l'application s'exécutent, et rien ne peut être envoyé vers un autre site.
 
 ### 1. Partage NAS en écriture
 
@@ -100,7 +122,31 @@ Tests : `npm test` (unitaires), `npm run test:int` (Docker requis), `npm run tes
    après une coupure), redémarrez le conteneur : sinon il continue de voir le dossier vide de
    l'hôte, et chaque copie NAS échoue (avec notification).
 
-### 1 bis. Chiffrement des copies NAS
+### 0 bis. Sandbox des scripts : profil AppArmor (une fois, avant le premier déploiement)
+
+Le runner démarre sous le profil AppArmor `bm-runner` : s'il n'est pas chargé sur l'hôte, Docker
+refuse de lancer le conteneur. Depuis une copie du dépôt sur le serveur :
+
+```bash
+sudo install -m 644 deploy/apparmor/bm-runner /etc/apparmor.d/bm-runner
+sudo apparmor_parser -r -W /etc/apparmor.d/bm-runner
+sudo aa-status | grep bm-runner   # doit afficher bm-runner
+```
+
+Le profil est rechargé à chaque démarrage de l'hôte (fichier dans `/etc/apparmor.d`). À refaire
+seulement si `deploy/apparmor/bm-runner` change.
+
+Au démarrage, le runner vérifie lui-même la sandbox (lancement d'un run de test) et refuse de
+démarrer si elle ne fonctionne pas : le journal du conteneur affiche alors la cause. Un démarrage
+réussi affiche « (sandbox par run) ».
+
+Ce que la sandbox ne fait pas : elle partage le noyau de l'hôte (comme tout conteneur). Pour limiter
+aussi ce que peut faire la base, donnez au script un **compte en lecture seule** sur la base
+sauvegardée : la sandbox empêche d'aller ailleurs, pas de modifier la base autorisée.
+
+### 1 bis. Chiffrement des copies NAS (obligatoire en production)
+
+En production, l'application refuse de démarrer sans `NAS_AGE_RECIPIENTS`.
 
 Avec `NAS_AGE_RECIPIENTS`, chaque fichier copié sur le NAS est chiffré avec [age](https://age-encryption.org)
 pour cette clé publique (`<fichier>.age`). Le NAS, ses administrateurs et quiconque vole ses disques ne voient
@@ -135,6 +181,7 @@ Créer un enregistrement DNS (`A` et/ou `AAAA`) pour le domaine choisi (ici `bac
    ADMIN_EMAIL=<email>
    ADMIN_PASSWORD=<mot de passe long et unique, ≥ 12 caractères>
    APP_URL=https://backups.example.com
+   NAS_AGE_RECIPIENTS=age1…
    ```
 
 3. Onglet « Domains » : `backups.example.com`, port 3000, HTTPS, Let's Encrypt (Dokploy ajoute
