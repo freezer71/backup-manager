@@ -18,6 +18,7 @@ import { testDb } from "./helpers";
 export const baseInput: ProjectInput = {
   name: "Pilote",
   environment_id: null,
+  network_secret: null,
   script: "echo ok",
   cron: "0 3 * * *",
   retention_count: 14,
@@ -43,6 +44,17 @@ describe("projets", () => {
     expect(() => createProject(db, { ...baseInput, name: "x", timeout_minutes: 0 })).toThrow(ValidationError);
     expect(() => createProject(db, { ...baseInput, name: "x", script: "  " })).toThrow(ValidationError);
     expect(() => createProject(db, baseInput)).toThrow(/existe déjà/);
+  });
+
+  it("valide le secret de l'URL de la base (seule destination réseau)", () => {
+    const db = testDb();
+    expect(() => createProject(db, { ...baseInput, network_secret: "DATABASE_URL" })).toThrow(/environnement/);
+    const envId = Number(db.prepare("INSERT INTO environments (name, created_at, updated_at) VALUES ('e', '', '')").run().lastInsertRowid);
+    expect(() => createProject(db, { ...baseInput, environment_id: envId, network_secret: "database-url" })).toThrow(ValidationError);
+    const id = createProject(db, { ...baseInput, environment_id: envId, network_secret: " DATABASE_URL " });
+    expect(getProject(db, id)?.network_secret).toBe("DATABASE_URL");
+    updateProject(db, id, { ...baseInput, environment_id: envId, network_secret: "" });
+    expect(getProject(db, id)?.network_secret).toBeNull();
   });
 
   it("normalise les fins de ligne CRLF du script (Review Focus 3)", () => {

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { ConfigError, loadConfig } from "@/lib/config";
 
 const KEY = "x".repeat(32);
+const AGE = "age1qqfhpx4f958eezxm5379lupvx9jcu3a9657cf6juxd57v5v2ry6qhk45sf";
 
 describe("loadConfig", () => {
   it("refuse une clé absente ou trop courte", () => {
@@ -20,6 +21,7 @@ describe("loadConfig", () => {
       appUrl: "http://localhost:3000",
       tz: "Europe/Paris",
       runnerSocket: null,
+      runnerWorkDir: "/work",
       nasRecipients: [],
     });
   });
@@ -50,10 +52,16 @@ describe("loadConfig", () => {
   });
 
   it("exige le runner isolé en production", () => {
-    expect(() => loadConfig({ DB_ENCRYPTION_KEY: KEY, NODE_ENV: "production" })).toThrow(/RUNNER_SOCKET/);
-    expect(loadConfig({ DB_ENCRYPTION_KEY: KEY, NODE_ENV: "production", RUNNER_SOCKET: "/run/bm/runner.sock" }).runnerSocket).toBe(
-      "/run/bm/runner.sock",
-    );
+    expect(() => loadConfig({ DB_ENCRYPTION_KEY: KEY, NODE_ENV: "production", NAS_AGE_RECIPIENTS: AGE })).toThrow(/RUNNER_SOCKET/);
+    expect(
+      loadConfig({ DB_ENCRYPTION_KEY: KEY, NODE_ENV: "production", RUNNER_SOCKET: "/run/bm/runner.sock", NAS_AGE_RECIPIENTS: AGE }).runnerSocket,
+    ).toBe("/run/bm/runner.sock");
     expect(loadConfig({ DB_ENCRYPTION_KEY: KEY, NODE_ENV: "production", RUNNER_MODE: "local" }).runnerSocket).toBeNull();
+  });
+
+  it("exige le chiffrement des copies NAS en production", () => {
+    expect(() => loadConfig({ DB_ENCRYPTION_KEY: KEY, NODE_ENV: "production", RUNNER_SOCKET: "/run/bm/runner.sock" })).toThrow(
+      /NAS_AGE_RECIPIENTS/,
+    );
   });
 });

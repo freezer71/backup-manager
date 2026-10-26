@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import type net from "node:net";
+import net from "node:net";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createEnvironment, upsertSecret } from "@/lib/repo/environments";
@@ -21,11 +21,11 @@ async function runner() {
   const root = tmpDir();
   const socket = path.join(root, "runner.sock");
   const workDir = path.join(root, "work");
-  servers.push(await startRunner(socket, { workDir, appGid: process.getgid!() }));
+  servers.push(await startRunner(socket, { workDir, appGid: process.getgid!(), sandbox: false }));
   return { socket, workDir };
 }
 
-const base = { projectSlug: "pilote", stamp: "2026-10-13_03-00-00", tz: "Europe/Paris", timeoutMs: 10_000 };
+const base = { networkSecret: null, projectSlug: "pilote", stamp: "2026-10-13_03-00-00", tz: "Europe/Paris", timeoutMs: 10_000 };
 
 async function waitFor(check: () => boolean) {
   for (let i = 0; i < 50 && !check(); i++) await new Promise((r) => setTimeout(r, 20));
@@ -70,14 +70,14 @@ describe("runner isolé", () => {
   });
 
   it("runProject passe par le runner quand RUNNER_SOCKET est défini", async () => {
-    const { socket } = await runner();
+    const { socket, workDir } = await runner();
     const db = testDb();
-    const cfg = { ...testConfig(), runnerSocket: socket };
+    const cfg = { ...testConfig(), runnerSocket: socket, runnerWorkDir: workDir };
     const env = createEnvironment(db, { name: "prod", description: "" });
     upsertSecret(db, env, "TOKEN", "jeton-secret-123");
     const projectId = createProject(db, {
       name: "Pilote",
-      environment_id: env,
+      environment_id: env, network_secret: null,
       script: 'echo "t=$TOKEN"; echo x > "$OUTPUT_DIR/f.dump"; ln -s /etc/passwd "$OUTPUT_DIR/lien"',
       cron: "0 3 * * *",
       retention_count: 3,
@@ -111,5 +111,38 @@ describe("copyOutputs", () => {
     fs.symlinkSync("/etc/passwd", path.join(out, "sous", "lien"));
     const r = await copyOutputs(out, path.join(root, "dest"));
     expect(r).toEqual({ files: [path.join("sous", "a.dump")], size: 3, skipped: [path.join("sous", "lien")] });
+  });
+});
+
+describe("sorties d'un runner compromis", () => {
+  it("refuse un dossier de sortie qui n'est pas celui du run", async () => {
+    const root = tmpDir();
+    const socket = path.join(root, "faux.sock");
+    const fake = await new Promise<net.Server>((resolve) => {
+      const s = net.createServer((sock) => {
+        sock.once("data", () => {
+          sock.write(JSON.stringify({ t: "result", exitCode: 0, signal: null, timedOut: false, log: "", outDir: "/etc" }) + "\n");
+        });
+      });
+      s.listen(socket, () => resolve(s));
+    });
+    servers.push(fake);
+    const db = testDb();
+    const cfg = { ...testConfig(), runnerSocket: socket, runnerWorkDir: path.join(root, "work") };
+    const projectId = createProject(db, {
+      name: "Pilote",
+      environment_id: null,
+      network_secret: null,
+      script: "true",
+      cron: "0 3 * * *",
+      retention_count: 3,
+      nas_copy: false,
+      timeout_minutes: 1,
+      enabled: true,
+    });
+    const run = getRun(db, (await runProject(projectId, "manual", { db, cfg }))!)!;
+    expect(run.status).toBe("failed");
+    expect(run.log).toContain("dossier de sortie inattendu");
+    expect(run.files).toEqual([]);
   });
 });

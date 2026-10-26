@@ -6,6 +6,7 @@ export function parseProjectForm(fd: FormData): ProjectInput {
   return {
     name: str("name"),
     environment_id: env ? Number(env) : null,
+    network_secret: str("network_secret").trim() || null,
     script: str("script"),
     cron: str("cron"),
     retention_count: Number(str("retention_count")),

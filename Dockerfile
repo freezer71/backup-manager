@@ -36,13 +36,13 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s CMD curl -fsS http://
 CMD ["node", "server.js"]
 
 # Runner isolé : exécute les scripts de backup, sans la base, sans sa clé, sans le NAS.
-# Tourne en root avec seulement CHOWN/SETUID/SETGID/KILL (voir docker-compose.yml) pour lancer
-# chaque run sous son propre uid.
+# Tourne en root avec quelques capacités (voir docker-compose.yml) pour lancer chaque run sous son propre uid,
+# dans une sandbox bubblewrap (runner/sandbox.ts).
 FROM node:24-bookworm-slim AS runner
 WORKDIR /runner
 ENV NODE_ENV=production TZ=Europe/Paris RUNNER_SOCKET=/run/bm/runner.sock WORK_DIR=/work APP_GID=1001
 
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl gnupg bash tzdata \
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl gnupg bash tzdata bubblewrap iproute2 \
  && install -d /usr/share/keyrings \
  && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /usr/share/keyrings/pgdg.gpg \
  && echo "deb [signed-by=/usr/share/keyrings/pgdg.gpg] http://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
@@ -53,8 +53,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 
 RUN mkdir -p /work /run/bm
 
-COPY lib/runner/env.ts lib/runner/execute.ts lib/runner/mask.ts ./lib/runner/
-COPY runner/server.ts ./runner/
+COPY lib/runner/env.ts lib/runner/execute.ts lib/runner/mask.ts lib/runner/targets.ts ./lib/runner/
+COPY runner/server.ts runner/sandbox.ts runner/sandbox-init.ts ./runner/
 
 VOLUME /work
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s CMD test -S "$RUNNER_SOCKET" || exit 1

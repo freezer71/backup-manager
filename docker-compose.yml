@@ -45,7 +45,7 @@ services:
       - "3000"
 
   # Exécute les scripts de backup : pas de base, pas de DB_ENCRYPTION_KEY, pas de NAS, pas de réseau Dokploy.
-  # Root pour lancer chaque run sous son propre uid, avec seulement les capacités nécessaires.
+  # Root pour lancer chaque run sous son propre uid dans une sandbox bubblewrap (README, « Sandbox des scripts »).
   runner:
     build:
       context: .
@@ -58,14 +58,24 @@ services:
       - /tmp:size=64m,mode=1777
     cap_drop:
       - ALL
+    # SYS_ADMIN : créer les espaces de noms et montages de la sandbox ; NET_ADMIN, NET_BIND_SERVICE : réseau
+    # propre à chaque sandbox. Les scripts n'en reçoivent aucune.
     cap_add:
       - CHOWN
       - SETUID
       - SETGID
       - KILL
+      - SYS_ADMIN
+      - NET_ADMIN
+      - NET_BIND_SERVICE
+    # seccomp : profil de Docker + pivot_root, sans espace de noms utilisateur pour personne.
+    # AppArmor : profil de Docker + montages (à charger sur l'hôte avant le déploiement, voir README).
     security_opt:
       - "no-new-privileges:true"
+      - "seccomp=./deploy/seccomp/runner.json"
+      - "apparmor=bm-runner"
     pids_limit: 512
+    cpus: 4
     mem_limit: 2g
     # Résolveurs publics : celui de la box est sur le LAN, que le pare-feu de l'hôte interdit au runner.
     dns:

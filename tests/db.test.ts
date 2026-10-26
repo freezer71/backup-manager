@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import Database from "better-sqlite3-multiple-ciphers";
 import { describe, expect, it } from "vitest";
 import { DatabaseKeyError, openDb } from "@/lib/db";
 import { MIGRATIONS } from "@/lib/db/migrations";
@@ -15,6 +16,30 @@ describe("openDb", () => {
       expect.arrayContaining(["user", "sessions", "login_attempts", "environments", "secrets", "projects", "runs", "audit_log", "settings"]),
     );
     db.close();
+  });
+
+  it("migration 5 : les projets existants gardent l'accès à la base que leur script utilise", () => {
+    const file = path.join(tmpDir(), "app.db");
+    const db = new Database(file);
+    db.pragma("cipher='sqlcipher'");
+    db.pragma("legacy=4");
+    db.pragma(`key='${TEST_KEY}'`);
+    for (const m of MIGRATIONS.slice(0, 4)) db.exec(m);
+    db.pragma("user_version = 4");
+    const insert = db.prepare(
+      "INSERT INTO projects (name, slug, script, cron, created_at, updated_at) VALUES (?, ?, ?, '0 3 * * *', '', '')",
+    );
+    insert.run("pg", "pg", 'pg_dump "$DATABASE_URL" -f x');
+    insert.run("mongo", "mongo", 'mongodump --uri="$MONGO_URI"');
+    insert.run("autre", "autre", "tar czf x /etc");
+    db.close();
+    const migrated = openDb(file, TEST_KEY);
+    const rows = migrated.prepare("SELECT slug, network_secret FROM projects ORDER BY id").all();
+    expect(rows).toEqual([
+      { slug: "pg", network_secret: "DATABASE_URL" },
+      { slug: "mongo", network_secret: "MONGO_URI" },
+      { slug: "autre", network_secret: null },
+    ]);
   });
 
   it("refuse une mauvaise clé", () => {

@@ -1,12 +1,15 @@
 import { isValidCron } from "@/lib/cron";
 import { nowIso, type DB } from "@/lib/db";
-import { isUniqueViolation, slugify, ValidationError } from "@/lib/validation";
+import { isUniqueViolation, SECRET_KEY_RE, slugify, ValidationError } from "@/lib/validation";
 
 export type Project = {
   id: number;
   name: string;
   slug: string;
   environment_id: number | null;
+  // Secret de l'environnement contenant l'URL de la base : ses hôtes et ports sont les seules destinations réseau
+  // du script (sandbox du runner). null : aucun réseau.
+  network_secret: string | null;
   script: string;
   cron: string;
   retention_count: number;
@@ -40,7 +43,14 @@ function normalize(input: ProjectInput): ProjectInput {
   }
   const script = input.script.replace(/\r\n?/g, "\n");
   if (!script.trim()) throw new ValidationError("Le script est vide");
-  return { ...input, name, cron, script };
+  const network_secret = input.network_secret?.trim() || null;
+  if (network_secret !== null && !SECRET_KEY_RE.test(network_secret)) {
+    throw new ValidationError("Secret de l'URL de la base : nom de secret attendu (majuscules, chiffres et _)");
+  }
+  if (network_secret !== null && input.environment_id === null) {
+    throw new ValidationError("Un accès réseau demande un environnement de secrets contenant l'URL de la base");
+  }
+  return { ...input, name, cron, script, network_secret };
 }
 
 export function createProject(db: DB, input: ProjectInput): number {
@@ -50,10 +60,10 @@ export function createProject(db: DB, input: ProjectInput): number {
   try {
     const res = db
       .prepare(
-        `INSERT INTO projects (name, slug, environment_id, script, cron, retention_count, nas_copy, timeout_minutes, enabled, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO projects (name, slug, environment_id, network_secret, script, cron, retention_count, nas_copy, timeout_minutes, enabled, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(p.name, slug, p.environment_id, p.script, p.cron, p.retention_count, p.nas_copy ? 1 : 0, p.timeout_minutes, p.enabled ? 1 : 0, now, now);
+      .run(p.name, slug, p.environment_id, p.network_secret, p.script, p.cron, p.retention_count, p.nas_copy ? 1 : 0, p.timeout_minutes, p.enabled ? 1 : 0, now, now);
     return Number(res.lastInsertRowid);
   } catch (e) {
     if (isUniqueViolation(e)) throw new ValidationError(`Un projet « ${slug} » existe déjà`);
@@ -65,9 +75,9 @@ export function createProject(db: DB, input: ProjectInput): number {
 export function updateProject(db: DB, id: number, input: ProjectInput): void {
   const p = normalize(input);
   db.prepare(
-    `UPDATE projects SET name = ?, environment_id = ?, script = ?, cron = ?, retention_count = ?, nas_copy = ?,
+    `UPDATE projects SET name = ?, environment_id = ?, network_secret = ?, script = ?, cron = ?, retention_count = ?, nas_copy = ?,
        timeout_minutes = ?, enabled = ?, updated_at = ? WHERE id = ?`,
-  ).run(p.name, p.environment_id, p.script, p.cron, p.retention_count, p.nas_copy ? 1 : 0, p.timeout_minutes, p.enabled ? 1 : 0, nowIso(), id);
+  ).run(p.name, p.environment_id, p.network_secret, p.script, p.cron, p.retention_count, p.nas_copy ? 1 : 0, p.timeout_minutes, p.enabled ? 1 : 0, nowIso(), id);
 }
 
 export function deleteProject(db: DB, id: number): void {

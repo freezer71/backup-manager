@@ -7,7 +7,7 @@ import { testDb, tmpDir } from "./helpers";
 
 const base: ProjectInput = {
   name: "Pilote",
-  environment_id: null,
+  environment_id: null, network_secret: null,
   script: "echo",
   cron: "0 3 * * *",
   retention_count: 14,

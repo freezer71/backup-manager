@@ -103,4 +103,16 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE runs ADD COLUMN script_ms INTEGER;
   ALTER TABLE runs ADD COLUMN nas_ms INTEGER;
   `,
+  `
+  -- Secret contenant l'URL de la base : seule destination réseau du script dans la sandbox. Les projets existants
+  -- reprennent le secret que leur script utilise (modèles Postgres et MongoDB), sinon aucun réseau.
+  ALTER TABLE projects ADD COLUMN network_secret TEXT;
+  UPDATE projects SET network_secret = CASE
+    WHEN script LIKE '%DATABASE_URL%' THEN 'DATABASE_URL'
+    WHEN script LIKE '%MONGO_URI%' THEN 'MONGO_URI'
+  END;
+  -- Expiration après inactivité, et dernière confirmation par code TOTP (actions sensibles).
+  ALTER TABLE sessions ADD COLUMN last_seen_at TEXT;
+  ALTER TABLE sessions ADD COLUMN reauth_at TEXT;
+  `,
 ];

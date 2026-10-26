@@ -100,11 +100,25 @@ async function execute(project: Project, runId: number, stamp: string, deps: Run
       // Production : le script tourne dans le runner isolé, sans accès à la base ni à sa clé.
       const remote = await runRemote(
         cfg.runnerSocket,
-        { runId, script: project.script, secrets, projectSlug: project.slug, stamp, tz: cfg.tz, timeoutMs, exitGraceMs: deps.exitGraceMs },
+        {
+          runId,
+          script: project.script,
+          secrets,
+          projectSlug: project.slug,
+          stamp,
+          tz: cfg.tz,
+          timeoutMs,
+          exitGraceMs: deps.exitGraceMs,
+          networkSecret: project.network_secret,
+        },
         onLog,
       );
       ({ result, outDir } = remote);
       release = remote.release;
+      // Le chemin des sorties ne vient jamais du runner : compromis, il pourrait faire copier n'importe quel fichier
+      // lisible par l'application (/proc/self/environ contient DB_ENCRYPTION_KEY) dans les backups et sur le NAS.
+      const expected = path.join(cfg.runnerWorkDir, String(runId), "out");
+      if (outDir !== expected) throw new Error("runner : dossier de sortie inattendu, run refusé");
     } else {
       const workDir = path.join(runDir, "work");
       outDir = path.join(runDir, "out");

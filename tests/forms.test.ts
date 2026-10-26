@@ -14,6 +14,7 @@ describe("parseProjectForm", () => {
     expect(parseProjectForm(fd)).toEqual({
       name: "Pilote",
       environment_id: 3,
+      network_secret: null,
       script: "echo",
       cron: "0 3 * * *",
       retention_count: 7,
