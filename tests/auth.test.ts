@@ -13,6 +13,7 @@ import {
   markSessionTotpOk,
 } from "@/lib/auth/session";
 import { checkTotp, isTotpSecret, newTotpSecret } from "@/lib/auth/totp";
+import { createUser, getUser, replacePasswordHash, setPasswordHash } from "@/lib/repo/user";
 import { testDb } from "./helpers";
 import type { DB } from "@/lib/db";
 
@@ -305,5 +306,17 @@ describe("mot de passe", () => {
     expect(await verifyPassword(h, "un-mot-de-passe-long")).toBe(true);
     expect(needsRehash("$argon2id$v=19$m=19456,t=2,p=1$c2FsdHNhbHQ$aGFzaA")).toBe(true);
     expect(needsRehash("$2b$10$bcrypt")).toBe(true);
+  });
+});
+
+describe("re-hachage à la connexion", () => {
+  it("n'écrase jamais un mot de passe changé pendant le calcul", () => {
+    const db = testDb();
+    createUser(db, "a@example.com", "ancien-hache");
+    setPasswordHash(db, "nouveau-mot-de-passe"); // changement concurrent
+    expect(replacePasswordHash(db, "ancien-hache", "ancien-rehache")).toBe(false);
+    expect(getUser(db)?.password_hash).toBe("nouveau-mot-de-passe");
+    expect(replacePasswordHash(db, "nouveau-mot-de-passe", "rehache")).toBe(true);
+    expect(getUser(db)?.password_hash).toBe("rehache");
   });
 });

@@ -18,7 +18,7 @@ import { issueTrustedDevice } from "@/lib/auth/trusted-device";
 import { checkTotp } from "@/lib/auth/totp";
 import { getDb } from "@/lib/db";
 import { audit } from "@/lib/repo/audit";
-import { claimTotpStep, confirmTotp, getUser, setPasswordHash } from "@/lib/repo/user";
+import { claimTotpStep, confirmTotp, getUser, replacePasswordHash } from "@/lib/repo/user";
 import { securityEvent } from "@/lib/security-events";
 
 const MAX_EMAIL = 254;
@@ -57,7 +57,7 @@ export async function loginAction(_: FormState, fd: FormData): Promise<FormState
   const ok = !!user && user.email === email && passwordOk;
   if (ok) {
     markAttemptSuccess(db, attempt.attemptId);
-    if (needsRehash(user.password_hash)) setPasswordHash(db, await hashPassword(password));
+    if (needsRehash(user.password_hash)) replacePasswordHash(db, user.password_hash, await hashPassword(password));
   }
   audit(db, ok ? "login.password_ok" : "login.failed", email, ip);
   if (!ok || !user) return { error: "Email ou mot de passe incorrect." };

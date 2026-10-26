@@ -46,6 +46,8 @@ export type RunnerOptions = { workDir: string; appGid: number; sandbox: boolean;
 
 const DEFAULT_MAX_RUN_BYTES = 50 * 1024 ** 3;
 const USAGE_CHECK_MS = 10_000;
+// En dessous, le run en cours est arrêté, même sous sa taille maximale (plusieurs runs à la fois).
+const MIN_FREE_BYTES = 1024 ** 3;
 
 function isRoot(): boolean {
   return process.getuid?.() === 0;
@@ -96,6 +98,8 @@ function asRunUser(runId: number, args: string[], cwd: string): Promise<void> {
 }
 
 // Taille de work + out, mesurée sous l'uid du run (root sans CAP_DAC_READ_SEARCH ne peut pas les parcourir).
+// Une mesure incomplète (dossier rendu illisible par le script, du en échec) compte comme un dépassement :
+// sinon un chmod 000 suffirait à cacher ce qu'il écrit.
 function runUsageBytes(runId: number, base: string): Promise<number> {
   return new Promise((resolve) => {
     const child = spawn("du", ["-s", "-B1", "-x", "work", "out"], {
@@ -107,9 +111,29 @@ function runUsageBytes(runId: number, base: string): Promise<number> {
     });
     let out = "";
     child.stdout.on("data", (d: Buffer) => (out += d.toString()));
-    child.on("error", () => resolve(0));
-    child.on("close", () => resolve(out.split("\n").reduce((sum, line) => sum + (Number(line.split("\t")[0]) || 0), 0)));
+    child.on("error", () => resolve(Infinity));
+    child.on("close", (code) => {
+      const sizes = out.trim().split("\n").map((line) => Number(line.split("\t")[0]));
+      resolve(code !== 0 || sizes.length !== 2 || sizes.some((n) => !Number.isFinite(n)) ? Infinity : sizes[0] + sizes[1]);
+    });
   });
+}
+
+// Espace libre du volume /work : garde-fou commun, quelle que soit la façon dont les runs se partagent le disque.
+async function freeBytes(dir: string): Promise<number> {
+  try {
+    const s = await fs.statfs(dir);
+    return s.bavail * s.bsize;
+  } catch {
+    return Infinity;
+  }
+}
+
+export function parseMaxRunBytes(value: string | undefined): number | undefined {
+  if (value === undefined || value === "") return undefined;
+  const n = Number(value);
+  if (!Number.isSafeInteger(n) || n <= 0) throw new Error("RUN_MAX_BYTES doit être un nombre d'octets entier et positif");
+  return n;
 }
 
 // Tue tout ce qui tourne encore sous l'uid du run, y compris un démon sorti du groupe (setsid).
@@ -191,8 +215,8 @@ async function handleRun(opts: RunnerOptions, req: RunRequest, send: (m: RunnerM
     dirs.uid === undefined
       ? undefined
       : setInterval(() => {
-          void runUsageBytes(req.runId, dirs.base).then((bytes) => {
-            if (bytes > maxBytes && !oversized) {
+          void Promise.all([runUsageBytes(req.runId, dirs.base), freeBytes(opts.workDir)]).then(([bytes, free]) => {
+            if ((bytes > maxBytes || free < MIN_FREE_BYTES) && !oversized) {
               oversized = true;
               void killRunUser(req.runId);
             }
@@ -248,7 +272,7 @@ async function handleRun(opts: RunnerOptions, req: RunRequest, send: (m: RunnerM
     result = {
       ...result,
       exitCode: result.exitCode === 0 ? 1 : result.exitCode,
-      log: result.log + `[runner] Arrêté : plus de ${limit} écrits dans $OUTPUT_DIR et $TMPDIR\n`,
+      log: result.log + `[runner] Arrêté : plus de ${limit} écrits dans $OUTPUT_DIR et $TMPDIR, dossier illisible, ou disque presque plein\n`,
     };
   }
   // Plus rien ne doit tourner (ni modifier les sorties) pendant que l'application les copie.
@@ -337,7 +361,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     workDir: process.env.WORK_DIR || "/work",
     appGid: Number(process.env.APP_GID || 1001),
     sandbox: isRoot(),
-    maxRunBytes: process.env.RUN_MAX_BYTES ? Number(process.env.RUN_MAX_BYTES) : undefined,
+    maxRunBytes: parseMaxRunBytes(process.env.RUN_MAX_BYTES),
   };
   startRunner(socketPath, opts).then(
     () => console.log(`[runner] prêt sur ${socketPath}${opts.sandbox ? " (sandbox par run)" : " (SANS sandbox)"}`),

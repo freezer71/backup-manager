@@ -9,7 +9,7 @@ import { MASK } from "@/lib/runner/mask";
 import { runRemote } from "@/lib/runner/remote";
 import { runProject } from "@/lib/runner/run-project";
 import { copyOutputs, localBackupDir } from "@/lib/runner/storage";
-import { startRunner } from "@/runner/server";
+import { parseMaxRunBytes, startRunner } from "@/runner/server";
 import { testConfig, testDb, tmpDir } from "./helpers";
 
 const servers: net.Server[] = [];
@@ -144,5 +144,13 @@ describe("sorties d'un runner compromis", () => {
     expect(run.status).toBe("failed");
     expect(run.log).toContain("dossier de sortie inattendu");
     expect(run.files).toEqual([]);
+  });
+});
+
+describe("RUN_MAX_BYTES", () => {
+  it("refuse une valeur non entière, nulle ou négative", () => {
+    expect(parseMaxRunBytes(undefined)).toBeUndefined();
+    expect(parseMaxRunBytes("8000000")).toBe(8_000_000);
+    for (const bad of ["abc", "0", "-5", "1.5", "1e400"]) expect(() => parseMaxRunBytes(bad), bad).toThrow(/RUN_MAX_BYTES/);
   });
 });

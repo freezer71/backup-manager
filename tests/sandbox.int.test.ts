@@ -204,4 +204,10 @@ describe.skipIf(!hasDocker())("sandbox des scripts (conteneur runner)", () => {
     expect(r.result?.log).toContain("Arrêté : plus de");
     expect(r.result?.log).not.toContain("FUITE");
   }, 60_000);
+
+  it("un dossier rendu illisible ne cache pas ce qui est écrit", async () => {
+    const r = await run('mkdir "$TMPDIR/cache"; head -c 20000000 /dev/zero > "$TMPDIR/cache/gros"; chmod 000 "$TMPDIR/cache"; sleep 60; echo "FUITE fini"', { networkSecret: null });
+    expect(r.result?.log).toContain("Arrêté : plus de");
+    expect(r.result?.log).not.toContain("FUITE");
+  }, 60_000);
 });
