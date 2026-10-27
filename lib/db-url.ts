@@ -3,8 +3,20 @@ import { parseDbUrl } from "@/lib/runner/targets";
 
 // Serveur uniquement (targets.ts utilise node:dns) : le formulaire client n'importe que lib/dumps.ts.
 
+// Partie de l'URL après l'hôte (chemin, paramètres). Un « @ » à cet endroit signale un mot de passe dont les
+// caractères spéciaux (« / », « ? », « # ») ne sont pas encodés : l'hôte réel ne serait pas celui qu'on croit.
+function afterAuthority(url: string): string | null {
+  const m = /^[a-z][a-z0-9+.-]*:\/\/([\s\S]*)$/i.exec(url.trim());
+  if (!m) return null;
+  const end = m[1].search(/[/?#]/);
+  return end < 0 ? "" : m[1].slice(end);
+}
+
 // null si l'URL convient au type de base ; sinon la raison (jamais l'URL : elle contient le mot de passe).
 export function dbUrlProblem(kind: DbKind, url: string): string | null {
+  if (afterAuthority(url)?.includes("@")) {
+    return "URL de connexion : encodez les caractères spéciaux du mot de passe (« / » en %2F, « ? » en %3F, « # » en %23, « @ » en %40)";
+  }
   let scheme: string;
   try {
     scheme = parseDbUrl(url).scheme;
@@ -15,25 +27,18 @@ export function dbUrlProblem(kind: DbKind, url: string): string | null {
   return schemes.includes(scheme) ? null : `URL ${label} attendue (${schemes.map((s) => `${s}://`).join(" ou ")}…)`;
 }
 
-function isParsable(url: string): boolean {
-  try {
-    parseDbUrl(url);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-// Ce qui peut s'afficher d'une URL sans code 2FA : protocole, hôtes et base, sans identifiants ni paramètres.
-// Découpage identique à targets.ts : l'hôte suit le dernier « @ » de l'autorité (un mot de passe peut en contenir).
+// Ce qui peut s'afficher d'une URL sans code 2FA : protocole, hôtes reconnus par l'analyseur et nom de la base.
+// Rien n'est recopié de l'autorité brute (identifiants), ni des paramètres.
 export function dbUrlLabel(url: string): string {
-  const m = /^([a-z][a-z0-9+.-]*:\/\/)([\s\S]*)$/i.exec(url.trim());
-  // Une URL qui ne s'analyse pas (ex. « / » non encodé dans le mot de passe) ne s'affiche pas du tout.
-  if (!m || !isParsable(url)) return "URL invalide";
-  const end = m[2].search(/[/?#]/);
-  const authority = end < 0 ? m[2] : m[2].slice(0, end);
-  const path = end < 0 ? "" : m[2].slice(end).replace(/[?#][\s\S]*$/, "");
-  const hosts = authority.slice(authority.lastIndexOf("@") + 1);
-  // Un « @ » dans le chemin : mot de passe mal encodé, on n'affiche rien après l'hôte.
-  return `${m[1].toLowerCase()}${hosts}${path.includes("@") ? "" : path}`;
+  const rest = afterAuthority(url);
+  if (rest === null || rest.includes("@")) return "URL invalide";
+  let parsed: ReturnType<typeof parseDbUrl>;
+  try {
+    parsed = parseDbUrl(url);
+  } catch {
+    return "URL invalide";
+  }
+  const hosts = parsed.hosts.map((h) => (h.port ? `${h.host}:${h.port}` : h.host)).join(",");
+  const base = /^\/([A-Za-z0-9_.-]+)/.exec(rest)?.[1];
+  return `${parsed.scheme}://${hosts}${base ? `/${base}` : ""}`;
 }

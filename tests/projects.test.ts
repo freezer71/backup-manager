@@ -56,6 +56,7 @@ describe("projets", () => {
       [{ db_kind: "mongodb" }, /URL MongoDB attendue/],
       [{ db_url: "postgresql://u:secret-1@/app?host=/var/run" }, /URL de connexion/],
       [{ db_kind: "mysql" as never }, /Type de base inconnu/],
+      [{ db_url: "postgresql://u:5432/secret-1@db.example.com/app" }, /encodez les caractères spéciaux/],
     ];
     for (const [patch, message] of attempts) {
       let error: unknown;
@@ -95,6 +96,9 @@ describe("dumps", () => {
     expect(dbUrlLabel("postgresql://u:p%40ss@db.example.com:5432/app?sslmode=require&password=x")).toBe("postgresql://db.example.com:5432/app");
     expect(dbUrlLabel("mongodb+srv://u:p@ss@cluster.example.net/app")).toBe("mongodb+srv://cluster.example.net/app");
     expect(dbUrlLabel("postgresql://u:pa/ss@db.example.com/app")).toBe("URL invalide");
+    // Mot de passe « 5432/x » non encodé : « u:5432 » ressemble à un hôte valide, rien ne doit en sortir.
+    expect(dbUrlLabel("postgresql://u:5432/x@db.example.com/app")).toBe("URL invalide");
+    expect(dbUrlLabel("mongodb+srv://u:p@cluster.example.net")).toBe("mongodb+srv://cluster.example.net");
     expect(dbUrlLabel("n'importe quoi")).toBe("URL invalide");
   });
 });
