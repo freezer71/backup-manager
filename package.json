@@ -12,7 +12,7 @@
     "test:e2e": "rm -rf .e2e-data .e2e-nas && playwright test"
   },
   "dependencies": {
-    "@codemirror/language": "^6.12.4",
+    "@codemirror/language": "^6.13.1",
     "@codemirror/legacy-modes": "^6.5.4",
     "@codemirror/view": "^6.43.13",
     "@node-rs/argon2": "^2.2.1",
