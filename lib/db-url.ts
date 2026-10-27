@@ -29,6 +29,14 @@ export function dbUrlProblem(kind: DbKind, url: string): string | null {
   if (kind === "mysql" && parsed.hosts.length > 1) return `URL ${label} : un seul hôte`;
   // Un nom de base commençant par « - » serait lu comme une option de mariadb-dump.
   if (kind === "mysql" && /^\/(-|%2d)/i.test(afterAuthority(url) ?? "")) return `URL ${label} : nom de base invalide`;
+  // Une valeur inconnue ne doit pas laisser croire que la connexion est chiffrée.
+  if (kind === "mysql") {
+    const query = (afterAuthority(url) ?? "").split("#")[0].split("?")[1] ?? "";
+    const modes = new URLSearchParams(query).getAll("ssl-mode");
+    if (modes.length > 1 || modes.some((m) => !["disabled", "required", "verify_ca", "verify_identity"].includes(m.toLowerCase()))) {
+      return `URL ${label} : ssl-mode doit valoir DISABLED, REQUIRED, VERIFY_CA ou VERIFY_IDENTITY`;
+    }
+  }
   return null;
 }
 

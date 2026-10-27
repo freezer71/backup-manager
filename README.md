@@ -34,7 +34,8 @@ toujours le même dump selon le type (`lib/dumps.ts`).
 - **MySQL / MariaDB** : `mariadb-dump --single-transaction --routines --triggers | gzip`, vérifié avec `gzip -t` et
   la ligne finale `Dump completed` ; fichier `<projet>-backup_<date>.sql.gz`. URL `mysql://` ou `mariadb://`, un seul
   hôte ; sans nom de base, toutes les bases sont sauvegardées. TLS : `?ssl-mode=REQUIRED` (chiffré) ou
-  `?ssl-mode=VERIFY_IDENTITY` (certificat et nom d'hôte vérifiés). Le client MariaDB fonctionne aussi avec MySQL 8 et 9.
+  `?ssl-mode=VERIFY_IDENTITY` (certificat et nom d'hôte vérifiés ; `VERIFY_CA` fait de même). **Sans `ssl-mode`, la
+  connexion n'est pas chiffrée** : à réserver à un réseau de confiance. Le client MariaDB fonctionne aussi avec MySQL 8 et 9.
 - L'URL est enregistrée chiffrée. La page du projet n'en montre que l'hôte et la base ; l'afficher en
   entier ou la changer demande un code 2FA récent. Un compte **en lecture seule** sur la base suffit.
 - L'URL est masquée (`••••`) dans les journaux, ainsi que son mot de passe et ses formes encodées.

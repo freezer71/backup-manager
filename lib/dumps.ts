@@ -65,11 +65,16 @@ query="\${query%%#*}"
 
 opts=(--protocol=TCP --host="$host" --port="$port" --single-transaction --quick --routines --triggers --hex-blob --no-tablespaces --default-character-set=utf8mb4)
 [[ -n "$user" ]] && opts+=(--user="$user")
+# Valeur vérifiée par lib/db-url.ts. Le client MariaDB ne sait pas vérifier le certificat sans le nom d'hôte :
+# VERIFY_CA vérifie les deux, comme VERIFY_IDENTITY.
+shopt -s nocasematch
 case "&$query&" in
-  *"&ssl-mode=VERIFY_IDENTITY&"*) opts+=(--ssl --ssl-verify-server-cert --ssl-ca=/etc/ssl/certs/ca-certificates.crt) ;;
-  *"&ssl-mode=REQUIRED&"* | *"&ssl-mode=VERIFY_CA&"*) opts+=(--ssl) ;;
-  *"&ssl-mode=DISABLED&"*) opts+=(--skip-ssl) ;;
+  *"&ssl-mode=verify_identity&"* | *"&ssl-mode=verify_ca&"*) opts+=(--ssl --ssl-verify-server-cert --ssl-ca=/etc/ssl/certs/ca-certificates.crt) ;;
+  *"&ssl-mode=required&"*) opts+=(--ssl) ;;
+  *"&ssl-mode=disabled&"*) opts+=(--skip-ssl) ;;
+  *"&ssl-mode="*) echo "ssl-mode non pris en charge" >&2; exit 1 ;;
 esac
+shopt -u nocasematch
 # Un nom commençant par « - » serait lu comme une option de mariadb-dump.
 if [[ "$base" == -* ]]; then echo "nom de base invalide" >&2; exit 1; fi
 if [[ -n "$base" ]]; then opts+=(--databases "$base"); else opts+=(--all-databases); fi

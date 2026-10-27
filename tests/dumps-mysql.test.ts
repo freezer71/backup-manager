@@ -50,6 +50,9 @@ describe("script MySQL / MariaDB", () => {
       expect.arrayContaining(["--ssl", "--ssl-verify-server-cert", "--ssl-ca=/etc/ssl/certs/ca-certificates.crt"]),
     );
     expect(run("mysql://u:p@db.example.com/app?ssl-mode=DISABLED").args).toContain("--skip-ssl");
+    expect(run("mysql://u:p@db.example.com/app?ssl-mode=verify_ca").args).toEqual(expect.arrayContaining(["--ssl", "--ssl-verify-server-cert"]));
+    expect(run("mysql://u:p@db.example.com/app?ssl-mode=required").args).toContain("--ssl");
+    expect(() => run("mysql://u:p@db.example.com/app?ssl-mode=PREFERRED")).toThrow();
   });
 
   it("refuse un nom de base qui serait lu comme une option", () => {

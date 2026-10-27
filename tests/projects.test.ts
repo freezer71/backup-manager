@@ -60,6 +60,8 @@ describe("projets", () => {
       [{ db_kind: "mysql", db_url: "mysql://u:secret-1@a.example.com,b.example.com/app" }, /un seul hôte/],
       [{ db_kind: "mysql", db_url: "mysql://u:secret-1@db.example.com/%2D%2Dplugin-dir=%2Ftmp" }, /nom de base invalide/],
       [{ db_kind: "mysql", db_url: "mysql://u:secret-1@db.example.com/-x" }, /nom de base invalide/],
+      [{ db_kind: "mysql", db_url: "mysql://u:secret-1@db.example.com/app?ssl-mode=PREFERRED" }, /ssl-mode doit valoir/],
+      [{ db_kind: "mysql", db_url: "mysql://u:secret-1@db.example.com/app?ssl-mode=REQUIRED&ssl-mode=DISABLED" }, /ssl-mode doit valoir/],
       [{ db_url: "postgresql://u:5432/secret-1@db.example.com/app" }, /encodez les caractères spéciaux/],
     ];
     for (const [patch, message] of attempts) {
