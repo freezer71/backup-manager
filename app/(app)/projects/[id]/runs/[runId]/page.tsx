@@ -25,14 +25,14 @@ export default async function RunPage({ params }: { params: Promise<{ id: string
     ["Début", fmt(run.started_at)],
     ["Fin", fmt(run.finished_at)],
     ["Durée", formatDuration(total)],
-    ["Script", formatDuration(run.script_ms)],
+    ["Dump", formatDuration(run.script_ms)],
     ["Taille", formatBytes(run.size_bytes)],
     ["Copie NAS", run.nas_ms === null ? nasLabel(run.nas_status) : `${nasLabel(run.nas_status)}, ${formatDuration(run.nas_ms)}`],
   ];
 
   return (
     <>
-      <PageHeader back={{ href: `/projects/${project.id}`, label: project.name }} title={`Exécution #${run.id}`} />
+      <PageHeader back={{ href: `/projects/${project.id}/runs`, label: `Historique de ${project.name}` }} title={`Exécution #${run.id}`} />
 
       <dl className="panel grid grid-cols-2 gap-x-6 gap-y-4 p-4 md:grid-cols-4">
         {facts.map(([label, value]) => (
