@@ -17,14 +17,27 @@ export function dbUrlProblem(kind: DbKind, url: string): string | null {
   if (afterAuthority(url)?.includes("@")) {
     return "URL de connexion : encodez les caractères spéciaux du mot de passe (« / » en %2F, « ? » en %3F, « # » en %23, « @ » en %40)";
   }
-  let scheme: string;
+  let parsed: ReturnType<typeof parseDbUrl>;
   try {
-    scheme = parseDbUrl(url).scheme;
+    parsed = parseDbUrl(url);
   } catch (e) {
     return `URL de connexion : ${e instanceof Error ? e.message : "invalide"}`;
   }
   const { label, schemes } = DB_KINDS[kind];
-  return schemes.includes(scheme) ? null : `URL ${label} attendue (${schemes.map((s) => `${s}://`).join(" ou ")}…)`;
+  if (!schemes.includes(parsed.scheme)) return `URL ${label} attendue (${schemes.map((s) => `${s}://`).join(" ou ")}…)`;
+  // Le script MySQL découpe l'URL lui-même et ne connaît qu'un hôte.
+  if (kind === "mysql" && parsed.hosts.length > 1) return `URL ${label} : un seul hôte`;
+  // Un nom de base commençant par « - » serait lu comme une option de mariadb-dump.
+  if (kind === "mysql" && /^\/(-|%2d)/i.test(afterAuthority(url) ?? "")) return `URL ${label} : nom de base invalide`;
+  // Une valeur inconnue ne doit pas laisser croire que la connexion est chiffrée.
+  if (kind === "mysql") {
+    const query = (afterAuthority(url) ?? "").split("#")[0].split("?")[1] ?? "";
+    const modes = new URLSearchParams(query).getAll("ssl-mode");
+    if (modes.length > 1 || modes.some((m) => !["disabled", "required", "verify_ca", "verify_identity"].includes(m.toLowerCase()))) {
+      return `URL ${label} : ssl-mode doit valoir DISABLED, REQUIRED, VERIFY_CA ou VERIFY_IDENTITY`;
+    }
+  }
+  return null;
 }
 
 // Ce qui peut s'afficher d'une URL sans code 2FA : protocole, hôtes reconnus par l'analyseur et nom de la base.

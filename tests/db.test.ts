@@ -57,6 +57,34 @@ describe("openDb", () => {
     expect(migrated.prepare("SELECT count(*) AS n FROM runs").get()).toEqual({ n: 1 });
   });
 
+  it("migration 7 : le type mysql est accepté, projets et runs sont gardés", () => {
+    const file = path.join(tmpDir(), "app7.db");
+    const db = new Database(file);
+    db.pragma("cipher='sqlcipher'");
+    db.pragma("legacy=4");
+    db.pragma(`key='${TEST_KEY}'`);
+    db.pragma("foreign_keys = OFF");
+    for (const m of MIGRATIONS.slice(0, 6)) db.exec(m);
+    db.pragma("user_version = 6");
+    db.pragma("foreign_keys = ON");
+    db.exec(`
+      INSERT INTO projects (id, name, slug, db_kind, db_url, cron, created_at, updated_at) VALUES
+        (1, 'Pg', 'pg', 'postgres', 'postgresql://u:p@db.example.com/app', '0 3 * * *', 'c', 'u');
+      INSERT INTO runs (project_id, trigger, status, stamp, started_at) VALUES (1, 'manual', 'success', 's', 'a');
+    `);
+    expect(() => db.exec("UPDATE projects SET db_kind = 'mysql'")).toThrow(/CHECK/);
+    db.close();
+
+    const migrated = openDb(file, TEST_KEY);
+    expect(migrated.prepare("SELECT id, slug, db_kind, db_url FROM projects").all()).toEqual([
+      { id: 1, slug: "pg", db_kind: "postgres", db_url: "postgresql://u:p@db.example.com/app" },
+    ]);
+    migrated.prepare("UPDATE projects SET db_kind = 'mysql' WHERE id = 1").run();
+    expect(() => migrated.prepare("UPDATE projects SET db_kind = 'oracle'").run()).toThrow(/CHECK/);
+    migrated.prepare("DELETE FROM projects WHERE id = 1").run();
+    expect(migrated.prepare("SELECT count(*) AS n FROM runs").get()).toEqual({ n: 0 });
+  });
+
   it("refuse une mauvaise clé", () => {
     const file = path.join(tmpDir(), "b.db");
     openDb(file, TEST_KEY).close();
