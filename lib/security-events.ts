@@ -4,22 +4,17 @@ import { audit } from "@/lib/repo/audit";
 import { getSetting } from "@/lib/repo/settings";
 import { sendNotification } from "@/lib/runner/notify";
 
-// Événements qui déclenchent une alerte sur le webhook, en plus du journal d'audit : ce qui donne accès aux secrets
-// ou au compte. Si ce n'est pas vous, vous le savez tout de suite (et pas au prochain passage dans le journal).
+// Événements qui déclenchent une alerte sur le webhook, en plus du journal d'audit : ce qui donne accès aux bases
+// sauvegardées ou au compte. Si ce n'est pas vous, vous le savez tout de suite (et pas au prochain passage dans le journal).
 const ALERTS: Record<string, string> = {
   "device.trusted": "connexion complète depuis un nouvel appareil",
   "password.change": "mot de passe changé",
   "totp.replaced": "application 2FA remplacée",
   "webhook.update": "webhook modifié",
-  "secret.reveal": "secret affiché",
-  "secret.update": "secret modifié",
-  "secret.import": "secrets importés",
-  "secret.delete": "secret supprimé",
-  "environment.delete": "environnement supprimé",
+  "db_url.reveal": "URL de connexion affichée",
+  "db_url.update": "URL de connexion ou type de base modifiés",
   "project.create": "projet créé",
   "project.delete": "projet supprimé",
-  "script.update": "script modifié",
-  "project.network": "accès réseau d'un projet modifié",
   "backup.download": "backup téléchargé",
 };
 

@@ -9,23 +9,19 @@ import { getClientIp, hasRecentConfirmation, reauthRequired, requireSession } fr
 import { getDb } from "@/lib/db";
 import { parseProjectForm } from "@/lib/forms";
 import { audit } from "@/lib/repo/audit";
-import { getEnvironment } from "@/lib/repo/environments";
-import { createProject, deleteProject, getProject, updateProject } from "@/lib/repo/projects";
+import { createProject, deleteProject, getProject, getProjectDbUrl, updateProject } from "@/lib/repo/projects";
 import { isProjectBusy, startProjectRun } from "@/lib/runner/run-project";
 import { getRunDeps, refreshProjectSchedule } from "@/lib/scheduler";
 import { safeChildDir } from "@/lib/runner/storage";
 import { securityEvent } from "@/lib/security-events";
 import { toFormError } from "@/lib/validation";
 
-// Créer, modifier ou supprimer un projet demande un code récent : un script choisit ses secrets et sa base.
+// Créer, modifier ou supprimer un projet demande un code récent : l'URL de connexion choisit la base copiée.
 export async function createProjectAction(_: FormState, fd: FormData): Promise<FormState> {
   await requireSession();
   if (!(await hasRecentConfirmation())) return reauthRequired();
   const db = getDb();
   const input = parseProjectForm(fd);
-  if (input.environment_id !== null && !getEnvironment(db, input.environment_id)) {
-    return { error: "Environnement introuvable" };
-  }
   let id: number;
   try {
     id = createProject(db, input);
@@ -44,9 +40,6 @@ export async function updateProjectAction(id: number, _: FormState, fd: FormData
   const before = getProject(db, id);
   if (!before) return { error: "Projet introuvable" };
   const input = parseProjectForm(fd);
-  if (input.environment_id !== null && !getEnvironment(db, input.environment_id)) {
-    return { error: "Environnement introuvable" };
-  }
   try {
     updateProject(db, id, input);
   } catch (e) {
@@ -55,13 +48,20 @@ export async function updateProjectAction(id: number, _: FormState, fd: FormData
   refreshProjectSchedule(id);
   const ip = await getClientIp();
   audit(db, "project.update", before.slug, ip);
-  const after = getProject(db, id)!;
-  if (before.script !== after.script) securityEvent(db, "script.update", before.slug, ip);
-  if (before.network_secret !== after.network_secret || before.environment_id !== after.environment_id) {
-    securityEvent(db, "project.network", `${before.slug} : ${after.network_secret ?? "aucun réseau"}`, ip);
-  }
+  if (input.db_url !== null || input.db_kind !== before.db_kind) securityEvent(db, "db_url.update", before.slug, ip);
   revalidatePath(`/projects/${id}`);
   return { ok: "Enregistré." };
+}
+
+export async function revealDbUrlAction(id: number): Promise<{ value: string } | { reauth: true }> {
+  await requireSession();
+  if (!(await hasRecentConfirmation())) return { reauth: true };
+  const db = getDb();
+  const project = getProject(db, id);
+  const url = getProjectDbUrl(db, id);
+  if (!project || !url) throw new Error("URL introuvable");
+  securityEvent(db, "db_url.reveal", project.slug, await getClientIp());
+  return { value: url };
 }
 
 export async function deleteProjectAction(id: number, _: FormState, fd: FormData): Promise<FormState> {

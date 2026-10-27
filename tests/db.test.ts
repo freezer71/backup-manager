@@ -13,33 +13,48 @@ describe("openDb", () => {
     expect(db.pragma("user_version", { simple: true })).toBe(MIGRATIONS.length);
     const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as { name: string }[];
     expect(tables.map((t) => t.name)).toEqual(
-      expect.arrayContaining(["user", "sessions", "login_attempts", "environments", "secrets", "projects", "runs", "audit_log", "settings"]),
+      expect.arrayContaining(["user", "sessions", "login_attempts", "projects", "runs", "audit_log", "settings"]),
     );
     db.close();
   });
 
-  it("migration 5 : les projets existants gardent l'accès à la base que leur script utilise", () => {
+  it("migration 6 : chaque projet reprend l'URL de son environnement, les runs sont gardés, les environnements supprimés", () => {
     const file = path.join(tmpDir(), "app.db");
     const db = new Database(file);
     db.pragma("cipher='sqlcipher'");
     db.pragma("legacy=4");
     db.pragma(`key='${TEST_KEY}'`);
-    for (const m of MIGRATIONS.slice(0, 4)) db.exec(m);
-    db.pragma("user_version = 4");
-    const insert = db.prepare(
-      "INSERT INTO projects (name, slug, script, cron, created_at, updated_at) VALUES (?, ?, ?, '0 3 * * *', '', '')",
-    );
-    insert.run("pg", "pg", 'pg_dump "$DATABASE_URL" -f x');
-    insert.run("mongo", "mongo", 'mongodump --uri="$MONGO_URI"');
-    insert.run("autre", "autre", "tar czf x /etc");
+    for (const m of MIGRATIONS.slice(0, 5)) db.exec(m);
+    db.pragma("user_version = 5");
+    db.pragma("foreign_keys = ON");
+    db.exec(`
+      INSERT INTO environments (id, name, created_at, updated_at) VALUES (1, 'pg', '', ''), (2, 'mongo', '', ''), (3, 'vide', '', '');
+      INSERT INTO secrets (environment_id, key, value, updated_at) VALUES
+        (1, 'DATABASE_URL', 'postgresql://u:p@db.example.com/app', ''),
+        (1, 'AUTRE', 'x', ''),
+        (2, 'MONGO_URI', 'mongodb+srv://u:p@cluster.example.net/app', '');
+      INSERT INTO projects (id, name, slug, environment_id, network_secret, script, cron, created_at, updated_at) VALUES
+        (1, 'Pg', 'pg', 1, 'DATABASE_URL', 'pg_dump "$DATABASE_URL"', '0 3 * * *', 'c', 'u'),
+        (2, 'Mongo', 'mongo', 2, 'MONGO_URI', 'mongodump --uri="$MONGO_URI"', '0 4 * * *', 'c', 'u'),
+        (3, 'Sans URL', 'sans-url', 3, NULL, 'tar czf x /etc', '0 5 * * *', 'c', 'u');
+      INSERT INTO runs (project_id, trigger, status, stamp, started_at) VALUES (1, 'manual', 'success', 's', 'a'), (2, 'manual', 'success', 's', 'a');
+    `);
     db.close();
+
     const migrated = openDb(file, TEST_KEY);
-    const rows = migrated.prepare("SELECT slug, network_secret FROM projects ORDER BY id").all();
-    expect(rows).toEqual([
-      { slug: "pg", network_secret: "DATABASE_URL" },
-      { slug: "mongo", network_secret: "MONGO_URI" },
-      { slug: "autre", network_secret: null },
+    expect(migrated.prepare("SELECT id, slug, db_kind, db_url, cron, enabled FROM projects ORDER BY id").all()).toEqual([
+      { id: 1, slug: "pg", db_kind: "postgres", db_url: "postgresql://u:p@db.example.com/app", cron: "0 3 * * *", enabled: 1 },
+      { id: 2, slug: "mongo", db_kind: "mongodb", db_url: "mongodb+srv://u:p@cluster.example.net/app", cron: "0 4 * * *", enabled: 1 },
+      { id: 3, slug: "sans-url", db_kind: "postgres", db_url: null, cron: "0 5 * * *", enabled: 0 },
     ]);
+    expect(migrated.prepare("SELECT project_id FROM runs ORDER BY id").all()).toEqual([{ project_id: 1 }, { project_id: 2 }]);
+    const tables = (migrated.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as { name: string }[]).map((t) => t.name);
+    expect(tables).not.toContain("environments");
+    expect(tables).not.toContain("secrets");
+    expect(migrated.pragma("foreign_keys", { simple: true })).toBe(1);
+    // Les runs suivent toujours leur projet.
+    migrated.prepare("DELETE FROM projects WHERE id = 1").run();
+    expect(migrated.prepare("SELECT count(*) AS n FROM runs").get()).toEqual({ n: 1 });
   });
 
   it("refuse une mauvaise clé", () => {

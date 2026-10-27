@@ -20,15 +20,15 @@ test("page Backups : liste, filtre par projet et téléchargement", async ({ pag
   await expect(page.getByRole("cell", { name: "Projet E2E" }).first()).toBeVisible();
 
   const download = page.waitForEvent("download");
-  await page.getByRole("link", { name: /e2e\.txt/ }).first().click();
-  expect(fs.readFileSync(await (await download).path(), "utf8")).toBe("contenu\n");
+  await page.getByRole("link", { name: /^projet-e2e-backup_.*\.dump$/ }).first().click();
+  expect(fs.readFileSync(await (await download).path()).subarray(0, 5).toString()).toBe("PGDMP");
 
   // Bouton du tableau de bord : dernier backup du projet.
   await page.goto("/");
   const row = page.getByRole("row").filter({ hasText: "Projet E2E" });
   const fromDashboard = page.waitForEvent("download");
   await row.getByRole("link", { name: /Télécharger/ }).click();
-  expect(fs.readFileSync(await (await fromDashboard).path(), "utf8")).toBe("contenu\n");
+  expect(fs.readFileSync(await (await fromDashboard).path()).subarray(0, 5).toString()).toBe("PGDMP");
 });
 
 test("page Statistiques : espace disque, durées et fiabilité", async ({ page }) => {

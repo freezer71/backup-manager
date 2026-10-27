@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { createProject, getProject, listProjects, updateProject, type ProjectInput } from "@/lib/repo/projects";
+import { dbUrlLabel } from "@/lib/db-url";
+import { DB_KINDS } from "@/lib/dumps";
+import { createProject, getProject, getProjectDbUrl, listProjects, updateProject, type ProjectInput } from "@/lib/repo/projects";
 import {
   createRun,
   finishRun,
@@ -11,15 +13,13 @@ import {
   listUnprunedSuccesses,
   markRunningAsInterrupted,
 } from "@/lib/repo/runs";
-import { TEMPLATES } from "@/lib/templates";
 import { ValidationError } from "@/lib/validation";
 import { testDb } from "./helpers";
 
 export const baseInput: ProjectInput = {
   name: "Pilote",
-  environment_id: null,
-  network_secret: null,
-  script: "echo ok",
+  db_kind: "postgres",
+  db_url: "postgresql://lecteur:mot-de-passe@db.example.com:5432/app",
   cron: "0 3 * * *",
   retention_count: 14,
   nas_copy: true,
@@ -28,53 +28,78 @@ export const baseInput: ProjectInput = {
 };
 
 describe("projets", () => {
-  it("crée un projet avec un slug et des booléens", () => {
+  it("crée un projet avec un slug et des booléens, sans charger l'URL avec lui", () => {
     const db = testDb();
     const id = createProject(db, baseInput);
-    expect(getProject(db, id)).toMatchObject({ slug: "pilote", nas_copy: true, enabled: true });
-    expect(listProjects(db)).toHaveLength(1);
+    const project = getProject(db, id)!;
+    expect(project).toMatchObject({ slug: "pilote", db_kind: "postgres", has_db_url: true, nas_copy: true, enabled: true });
+    expect(JSON.stringify(project)).not.toContain("mot-de-passe");
+    expect(JSON.stringify(listProjects(db))).not.toContain("mot-de-passe");
+    expect(getProjectDbUrl(db, id)).toBe(baseInput.db_url);
   });
 
-  it("refuse cron invalide, rétention nulle, timeout hors bornes, script vide, nom en double", () => {
+  it("refuse cron invalide, rétention nulle, timeout hors bornes, nom en double", () => {
     const db = testDb();
     createProject(db, baseInput);
     expect(() => createProject(db, { ...baseInput, name: "x", cron: "nope" })).toThrow(ValidationError);
     expect(() => createProject(db, { ...baseInput, name: "x", cron: "0 0 31 2 *" })).toThrow(ValidationError);
     expect(() => createProject(db, { ...baseInput, name: "x", retention_count: 0 })).toThrow(ValidationError);
     expect(() => createProject(db, { ...baseInput, name: "x", timeout_minutes: 0 })).toThrow(ValidationError);
-    expect(() => createProject(db, { ...baseInput, name: "x", script: "  " })).toThrow(ValidationError);
     expect(() => createProject(db, baseInput)).toThrow(/existe déjà/);
   });
 
-  it("valide le secret de l'URL de la base (seule destination réseau)", () => {
+  it("valide l'URL selon le type de base, sans jamais la citer dans l'erreur", () => {
     const db = testDb();
-    expect(() => createProject(db, { ...baseInput, network_secret: "DATABASE_URL" })).toThrow(/environnement/);
-    const envId = Number(db.prepare("INSERT INTO environments (name, created_at, updated_at) VALUES ('e', '', '')").run().lastInsertRowid);
-    expect(() => createProject(db, { ...baseInput, environment_id: envId, network_secret: "database-url" })).toThrow(ValidationError);
-    const id = createProject(db, { ...baseInput, environment_id: envId, network_secret: " DATABASE_URL " });
-    expect(getProject(db, id)?.network_secret).toBe("DATABASE_URL");
-    updateProject(db, id, { ...baseInput, environment_id: envId, network_secret: "" });
-    expect(getProject(db, id)?.network_secret).toBeNull();
+    const attempts: Array<[Partial<ProjectInput>, RegExp]> = [
+      [{ db_url: null }, /URL de connexion requise/],
+      [{ db_url: "mongodb://u:secret-1@h.example.com/app" }, /URL PostgreSQL attendue/],
+      [{ db_kind: "mongodb" }, /URL MongoDB attendue/],
+      [{ db_url: "postgresql://u:secret-1@/app?host=/var/run" }, /URL de connexion/],
+      [{ db_kind: "mysql" as never }, /Type de base inconnu/],
+      [{ db_url: "postgresql://u:5432/secret-1@db.example.com/app" }, /encodez les caractères spéciaux/],
+    ];
+    for (const [patch, message] of attempts) {
+      let error: unknown;
+      try {
+        createProject(db, { ...baseInput, name: "x", ...patch });
+      } catch (e) {
+        error = e;
+      }
+      expect(error, String(message)).toBeInstanceOf(ValidationError);
+      expect((error as Error).message).toMatch(message);
+      expect((error as Error).message).not.toContain("secret-1");
+    }
+    expect(createProject(db, { ...baseInput, name: "m", db_kind: "mongodb", db_url: "mongodb+srv://u:p@cluster.example.net/app" })).toBeGreaterThan(0);
   });
 
-  it("normalise les fins de ligne CRLF du script (Review Focus 3)", () => {
-    const db = testDb();
-    const id = createProject(db, { ...baseInput, script: "echo a\r\necho b\r\n" });
-    expect(getProject(db, id)!.script).toBe("echo a\necho b\n");
-    updateProject(db, id, { ...baseInput, script: "echo c\r\n" });
-    expect(getProject(db, id)!.script).toBe("echo c\n");
-  });
-
-  it("garde le slug quand on renomme", () => {
+  it("modification : URL vide = inchangée ; changer de type exige une URL adaptée", () => {
     const db = testDb();
     const id = createProject(db, baseInput);
-    updateProject(db, id, { ...baseInput, name: "Autre nom" });
+    updateProject(db, id, { ...baseInput, name: "Autre nom", db_url: null });
     expect(getProject(db, id)).toMatchObject({ name: "Autre nom", slug: "pilote" });
+    expect(getProjectDbUrl(db, id)).toBe(baseInput.db_url);
+    expect(() => updateProject(db, id, { ...baseInput, db_kind: "mongodb", db_url: null })).toThrow(/URL MongoDB attendue/);
+    updateProject(db, id, { ...baseInput, db_kind: "mongodb", db_url: " mongodb://u:p@m.example.com/app " });
+    expect(getProject(db, id)?.db_kind).toBe("mongodb");
+    expect(getProjectDbUrl(db, id)).toBe("mongodb://u:p@m.example.com/app");
+  });
+});
+
+describe("dumps", () => {
+  it("chaque type a son script fixe, qui lit l'URL dans DATABASE_URL", () => {
+    expect(DB_KINDS.postgres.script).toContain('pg_dump "$DATABASE_URL" -F c');
+    expect(DB_KINDS.postgres.script).toContain("pg_restore -l");
+    expect(DB_KINDS.mongodb.script).toContain('mongodump --uri="$DATABASE_URL"');
   });
 
-  it("le modèle Postgres reprend la vérification pg_restore", () => {
-    expect(TEMPLATES.postgres.script).toContain('pg_dump "$DATABASE_URL" -F c');
-    expect(TEMPLATES.postgres.script).toContain("pg_restore -l");
+  it("libellé affichable : ni identifiants ni paramètres", () => {
+    expect(dbUrlLabel("postgresql://u:p%40ss@db.example.com:5432/app?sslmode=require&password=x")).toBe("postgresql://db.example.com:5432/app");
+    expect(dbUrlLabel("mongodb+srv://u:p@ss@cluster.example.net/app")).toBe("mongodb+srv://cluster.example.net/app");
+    expect(dbUrlLabel("postgresql://u:pa/ss@db.example.com/app")).toBe("URL invalide");
+    // Mot de passe « 5432/x » non encodé : « u:5432 » ressemble à un hôte valide, rien ne doit en sortir.
+    expect(dbUrlLabel("postgresql://u:5432/x@db.example.com/app")).toBe("URL invalide");
+    expect(dbUrlLabel("mongodb+srv://u:p@cluster.example.net")).toBe("mongodb+srv://cluster.example.net");
+    expect(dbUrlLabel("n'importe quoi")).toBe("URL invalide");
   });
 });
 

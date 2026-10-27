@@ -23,10 +23,10 @@ describe("alertes de sécurité", () => {
   it("journalise toujours, alerte le webhook pour les événements sensibles seulement", () => {
     const db = testDb();
     setSetting(db, "webhook_url", "https://ntfy.sh/moi");
-    securityEvent(db, "secret.reveal", "prod/DATABASE_URL", "203.0.113.5");
+    securityEvent(db, "db_url.reveal", "pilote", "203.0.113.5");
     securityEvent(db, "run.manual", "pilote", "203.0.113.5");
-    expect(listAudit(db).map((e) => e.action)).toEqual(["run.manual", "secret.reveal"]);
-    expect(sent).toEqual([{ url: "https://ntfy.sh/moi", status: "secret.reveal", message: "secret affiché : prod/DATABASE_URL (IP 203.0.113.5)" }]);
+    expect(listAudit(db).map((e) => e.action)).toEqual(["run.manual", "db_url.reveal"]);
+    expect(sent).toEqual([{ url: "https://ntfy.sh/moi", status: "db_url.reveal", message: "URL de connexion affichée : pilote (IP 203.0.113.5)" }]);
   });
 
   it("prévient aussi l'ancien webhook quand il est remplacé", () => {

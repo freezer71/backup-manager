@@ -1,7 +1,7 @@
 # Backup Manager
 
-Application web (mono-utilisateur) qui planifie des scripts de backup, stocke leurs secrets dans
-une base SQLite chiffrée (SQLCipher) et copie les backups sur le NAS.
+Application web (mono-utilisateur) qui sauvegarde des bases PostgreSQL et MongoDB à heure fixe,
+stocke leurs URL de connexion dans une base SQLite chiffrée (SQLCipher) et copie les backups sur le NAS.
 
 ## Développement
 
@@ -20,33 +20,43 @@ Sur un poste de développement, définissez aussi `DATA_DIR` et `NAS_DIR` dans `
 exemple `./.data/app` et `./.data/nas`, ignorés par git) : les valeurs par défaut (`/data`, `/mnt/backups-nas`) ne
 sont pas inscriptibles.
 
-Tests : `npm test` (unitaires), `npm run test:int` (Docker requis), `npm run test:e2e` (Playwright).
+Tests : `npm test` (unitaires), `npm run test:int` (Docker requis), `npm run test:e2e` (Playwright,
+Docker et `pg_dump` requis : une base PostgreSQL de test est lancée dans Docker).
 
-## Contrat d'un script
+## Un projet = une base
 
-- Exécuté par `bash -euo pipefail` dans un dossier temporaire vide.
-- L'environnement transmis est limité aux secrets de l'environnement choisi, `OUTPUT_DIR`,
-  `PROJECT_NAME`, `TIMESTAMP` (`YYYY-MM-DD_HH-MM-SS`), `PATH`, `HOME`, `TMPDIR` (dossier du run),
-  `TZ`, `LANG`.
-- En production, le script tourne dans le conteneur `runner`, séparé de l'application : il n'a ni
+Un projet a un nom, un type de base (PostgreSQL ou MongoDB) et une URL de connexion, plus sa
+planification, sa rétention et sa copie NAS. Il n'y a pas de script à écrire : l'application lance
+toujours le même dump selon le type (`lib/dumps.ts`).
+
+- **PostgreSQL** : `pg_dump -F c`, vérifié avec `pg_restore -l` ; fichier `<projet>-backup_<date>.dump`.
+- **MongoDB** : `mongodump --archive --gzip`, vérifié avec `gzip -t` ; fichier `<projet>-backup_<date>.archive.gz`.
+- L'URL est enregistrée chiffrée. La page du projet n'en montre que l'hôte et la base ; l'afficher en
+  entier ou la changer demande un code 2FA récent. Un compte **en lecture seule** sur la base suffit.
+- L'URL est masquée (`••••`) dans les journaux, ainsi que son mot de passe et ses formes encodées.
+
+Fonctionnement d'un dump :
+
+- En production, le dump tourne dans le conteneur `runner`, séparé de l'application : il n'a ni
   la base, ni `DB_ENCRYPTION_KEY`, ni le NAS, ni le réseau Dokploy. Chaque run a son propre uid
-  (100000 + id du run) : un script ne lit ni l'environnement ni les fichiers d'un autre run, et ne
+  (100000 + id du run) : un dump ne lit ni l'environnement ni les fichiers d'un autre run, et ne
   peut pas joindre le socket du runner. À la fin du run, tout ce qui tourne encore sous cet uid est
   tué (y compris un démon sorti du groupe avec `setsid`).
-- **Sandbox par run** (bubblewrap, voir « Sandbox des scripts ») : le script ne voit que ses propres
-  processus, n'écrit que dans `$OUTPUT_DIR` et `$TMPDIR` (tout le reste est en lecture seule), et
-  n'a **aucun réseau** sauf vers la base désignée par le champ « Secret contenant l'URL de la base »
-  du projet (hôte et port de cette URL uniquement, pas de DNS). Un projet sans ce champ n'a aucun
-  réseau.
-- `$OUTPUT_DIR` + `$TMPDIR` sont limités à 50 Gio par run (`RUN_MAX_BYTES` sur le runner) : au-delà,
+- **Sandbox par run** (bubblewrap, voir « Sandbox des dumps ») : le dump ne voit que ses propres
+  processus, n'écrit que dans son dossier de sortie et son dossier temporaire (tout le reste est en
+  lecture seule), et n'a **aucun réseau** sauf vers l'hôte et le port de l'URL du projet (pas de DNS).
+  Si le serveur de la base, ou un proxy sur le chemin, cherchait à exploiter `pg_dump`, il resterait
+  enfermé là.
+- Sortie + dossier temporaire sont limités à 50 Gio par run (`RUN_MAX_BYTES` sur le runner) : au-delà,
   le run est arrêté.
-- Seuls les fichiers et dossiers réels de `$OUTPUT_DIR` sont gardés ; les liens symboliques sont
-  ignorés (et listés dans le journal).
-- En développement (sans `RUNNER_SOCKET`), le script tourne dans le processus de l'application,
-  sans aucune isolation. En production, l'application refuse de démarrer sans `RUNNER_SOCKET`
+- En développement (sans `RUNNER_SOCKET`), le dump tourne dans le processus de l'application
+  (`pg_dump` / `mongodump` du poste), sans aucune isolation. En production, l'application refuse de démarrer sans `RUNNER_SOCKET`
   (sauf `RUNNER_MODE=local`, réservé aux tests e2e).
-- Succès = code de sortie 0 **et** au moins un fichier dans `$OUTPUT_DIR`.
-- Les valeurs des secrets sont masquées (`••••`) dans les logs.
+- Succès = dump terminé sans erreur, vérifié, **et** un fichier produit.
+
+Les projets créés avant cette version (environnement de secrets + script) ont été convertis
+automatiquement : chacun a repris l'URL du secret ouvert au réseau (`DATABASE_URL` ou `MONGO_URI`).
+Un projet sans URL a été désactivé ; renseignez-la dans sa configuration.
 
 ## Déploiement (Dokploy)
 
@@ -83,14 +93,13 @@ Tests : `npm test` (unitaires), `npm run test:int` (Docker requis), `npm run tes
   construire la sandbox de chaque run ; en contrepartie, il tourne sous un profil seccomp
   (`deploy/seccomp/runner.json`) et un profil AppArmor (`bm-runner`) sur mesure. Le code appartient
   à root dans les images.
-- **Code 2FA récent pour les actions sensibles.** Afficher, copier, modifier ou supprimer un secret,
-  créer, modifier ou supprimer un projet, supprimer un environnement, changer le webhook et
-  télécharger un backup demandent un code TOTP saisi depuis moins de 10 minutes. Une session volée
-  seule ne lit donc aucun secret. Les sessions expirent après 4 h d'inactivité ; Paramètres liste les
+- **Code 2FA récent pour les actions sensibles.** Afficher l'URL de connexion d'un projet, créer,
+  modifier ou supprimer un projet, changer le webhook et télécharger un backup demandent un code TOTP
+  saisi depuis moins de 10 minutes. Une session volée seule ne lit donc aucune URL de base. Les sessions expirent après 4 h d'inactivité ; Paramètres liste les
   sessions et les appareils de confiance, révocables.
 - **Alertes de sécurité.** Le webhook reçoit, en plus des résultats des runs, une alerte pour chaque
-  événement sensible (nouvel appareil, secret affiché ou modifié, script ou réseau d'un projet
-  modifié, téléchargement, mot de passe ou 2FA changés). Changer le webhook prévient aussi l'ancien.
+  événement sensible (nouvel appareil, URL de connexion affichée ou modifiée, projet créé ou
+  supprimé, téléchargement, mot de passe ou 2FA changés). Changer le webhook prévient aussi l'ancien.
   Le webhook doit être en `https://` vers une adresse publique (ni LAN, ni réseau Docker) ; l'URL
   enregistrée n'est plus jamais réaffichée.
 - **CSP.** Chaque page porte une Content-Security-Policy avec nonce (`proxy.ts`) : seuls les scripts
@@ -122,7 +131,7 @@ Tests : `npm test` (unitaires), `npm run test:int` (Docker requis), `npm run tes
    après une coupure), redémarrez le conteneur : sinon il continue de voir le dossier vide de
    l'hôte, et chaque copie NAS échoue (avec notification).
 
-### 0 bis. Sandbox des scripts : profil AppArmor (une fois, avant le premier déploiement)
+### 0 bis. Sandbox des dumps : profil AppArmor (une fois, avant le premier déploiement)
 
 Le runner démarre sous le profil AppArmor `bm-runner` : s'il n'est pas chargé sur l'hôte, Docker
 refuse de lancer le conteneur. Depuis une copie du dépôt sur le serveur :
@@ -141,8 +150,7 @@ démarrer si elle ne fonctionne pas : le journal du conteneur affiche alors la c
 réussi affiche « (sandbox par run) ».
 
 Ce que la sandbox ne fait pas : elle partage le noyau de l'hôte (comme tout conteneur). Pour limiter
-aussi ce que peut faire la base, donnez au script un **compte en lecture seule** sur la base
-sauvegardée : la sandbox empêche d'aller ailleurs, pas de modifier la base autorisée.
+aussi ce que peut faire la base, utilisez un **compte en lecture seule** dans l'URL du projet : la sandbox empêche d'aller ailleurs, pas de modifier la base autorisée.
 
 ### 1 bis. Chiffrement des copies NAS (obligatoire en production)
 
@@ -230,11 +238,11 @@ age -d -i ~/.config/backup-manager/age-identity.txt <fichier>.dump.age > <fichie
 PostgreSQL (`.dump`) :
 
 ```bash
-pg_restore -d "$DATABASE_URL" -v <fichier>.dump
+pg_restore -d "<URL de la base cible>" -v <fichier>.dump
 ```
 
 MongoDB (`.archive.gz`) :
 
 ```bash
-mongorestore --uri="$MONGO_URI" --archive=<fichier> --gzip
+mongorestore --uri="<URL de la base cible>" --archive=<fichier> --gzip
 ```

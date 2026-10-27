@@ -2,8 +2,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { AppConfig } from "@/lib/config";
 import type { DB } from "@/lib/db";
-import { getSecretsMap } from "@/lib/repo/environments";
-import { getProject, type Project } from "@/lib/repo/projects";
+import { DB_KINDS, DB_URL_VAR } from "@/lib/dumps";
+import { getProject, getProjectDbUrl, type Project } from "@/lib/repo/projects";
 import { createRun, finishRun, getRun, hasRunningRun, setRunLog, type NasStatus, type RunStatus } from "@/lib/repo/runs";
 import { buildRunEnv, formatStamp } from "./env";
 import { executeScript, type ExecResult } from "./execute";
@@ -20,6 +20,8 @@ export type RunDeps = {
   send?: typeof sendNotification;
   // Transmis à executeScript (tests) : délai avant d'arrêter les processus restés actifs après la fin du script.
   exitGraceMs?: number;
+  // Tests uniquement : remplace le script de dump du type de base (l'application n'en fournit jamais d'autre).
+  script?: string;
 };
 
 const g = globalThis as unknown as { __bmLocks?: Set<number> };
@@ -80,8 +82,12 @@ async function execute(project: Project, runId: number, stamp: string, deps: Run
   let release = () => {};
 
   try {
-    const secrets = project.environment_id ? getSecretsMap(db, project.environment_id) : {};
-    mask = makeMasker(Object.values(secrets));
+    const url = getProjectDbUrl(db, project.id);
+    if (!url) throw new Error("URL de connexion manquante : renseignez-la dans la configuration du projet");
+    // L'URL est le seul secret du run, et sa seule destination réseau (sandbox du runner).
+    const secrets = { [DB_URL_VAR]: url };
+    mask = makeMasker([url]);
+    const script = deps.script ?? DB_KINDS[project.db_kind].script;
 
     let lastFlush = 0;
     const onLog = (current: string) => {
@@ -102,14 +108,14 @@ async function execute(project: Project, runId: number, stamp: string, deps: Run
         cfg.runnerSocket,
         {
           runId,
-          script: project.script,
+          script,
           secrets,
           projectSlug: project.slug,
           stamp,
           tz: cfg.tz,
           timeoutMs,
           exitGraceMs: deps.exitGraceMs,
-          networkSecret: project.network_secret,
+          networkSecret: DB_URL_VAR,
         },
         onLog,
       );
@@ -125,7 +131,7 @@ async function execute(project: Project, runId: number, stamp: string, deps: Run
       const scriptPath = path.join(runDir, "script.sh");
       await fs.mkdir(workDir, { recursive: true });
       await fs.mkdir(outDir, { recursive: true });
-      await fs.writeFile(scriptPath, project.script, { mode: 0o700 });
+      await fs.writeFile(scriptPath, script, { mode: 0o700 });
       result = await executeScript({
         scriptPath,
         cwd: workDir,
@@ -146,10 +152,10 @@ async function execute(project: Project, runId: number, stamp: string, deps: Run
     if (result.timedOut) status = "timeout";
     else if (result.exitCode !== 0) {
       status = "failed";
-      log += `Le script s'est terminé avec le code ${result.exitCode ?? result.signal}\n`;
+      log += `Le dump s'est terminé avec le code ${result.exitCode ?? result.signal}\n`;
     } else if (produced.files.length === 0) {
       status = "failed";
-      log += "Aucun fichier produit dans $OUTPUT_DIR\n";
+      log += "Aucun fichier de backup produit\n";
     }
 
     if (status !== "success") {

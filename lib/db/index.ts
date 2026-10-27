@@ -26,17 +26,23 @@ export function openDb(file: string, key: string): DB {
     );
   }
   db.pragma("journal_mode = WAL");
-  db.pragma("foreign_keys = ON");
   db.pragma("busy_timeout = 5000");
   migrate(db);
+  db.pragma("foreign_keys = ON");
   return db;
 }
 
+// Clés étrangères désactivées pendant les migrations (une table reconstruite ne doit rien supprimer en cascade),
+// puis vérifiées avant de valider chaque migration.
 function migrate(db: DB): void {
   const current = db.pragma("user_version", { simple: true }) as number;
+  db.pragma("foreign_keys = OFF");
   for (let v = current; v < MIGRATIONS.length; v++) {
     db.transaction(() => {
       db.exec(MIGRATIONS[v]);
+      if ((db.pragma("foreign_key_check") as unknown[]).length > 0) {
+        throw new Error(`migration ${v + 1} : clés étrangères incohérentes, annulée`);
+      }
       db.pragma(`user_version = ${v + 1}`);
     })();
   }

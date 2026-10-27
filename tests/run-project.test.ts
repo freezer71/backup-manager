@@ -5,7 +5,6 @@ import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { AppConfig } from "@/lib/config";
 import type { DB } from "@/lib/db";
-import { createEnvironment, upsertSecret } from "@/lib/repo/environments";
 import { createProject, getProject, type ProjectInput } from "@/lib/repo/projects";
 import { createRun, getRun, listRuns } from "@/lib/repo/runs";
 import { setSetting } from "@/lib/repo/settings";
@@ -14,10 +13,14 @@ import { localBackupDir, NAS_MARKER, nasBackupDir } from "@/lib/runner/storage";
 import { isProjectBusy, runProject, startProjectRun, type RunDeps } from "@/lib/runner/run-project";
 import { testConfig, testDb } from "./helpers";
 
+const URL = "postgresql://lecteur:tres-secret-123@db.example.com:5432/app";
+// Le vrai dump (pg_dump) est testé dans dumps.int.test.ts : ici, un script de test qui n'a pas besoin de base.
+const DEFAULT_SCRIPT = 'echo "dump" > "$OUTPUT_DIR/$PROJECT_NAME-$TIMESTAMP.dump"';
+
 const input: ProjectInput = {
   name: "Pilote",
-  environment_id: null, network_secret: null,
-  script: 'echo "dump" > "$OUTPUT_DIR/$PROJECT_NAME-$TIMESTAMP.dump"',
+  db_kind: "postgres",
+  db_url: URL,
   cron: "0 3 * * *",
   retention_count: 14,
   nas_copy: true,
@@ -25,13 +28,13 @@ const input: ProjectInput = {
   enabled: true,
 };
 
-function setup(overrides: Partial<ProjectInput> = {}, { nasReady = true } = {}) {
+function setup({ script = DEFAULT_SCRIPT, ...overrides }: Partial<ProjectInput> & { script?: string } = {}, { nasReady = true } = {}) {
   const db: DB = testDb();
   const cfg: AppConfig = testConfig();
   if (nasReady) fs.writeFileSync(path.join(cfg.nasDir, NAS_MARKER), "");
   setSetting(db, "webhook_url", "https://hook");
   const send = vi.fn().mockResolvedValue(undefined);
-  const deps: RunDeps = { db, cfg, send };
+  const deps: RunDeps = { db, cfg, send, script };
   const projectId = createProject(db, { ...input, ...overrides });
   return { db, cfg, deps, send, projectId };
 }
@@ -76,8 +79,7 @@ describe("runProject", () => {
   it("sans copie NAS : nas_ms reste nul, script_ms mesuré même en cas d'échec", async () => {
     const { db, deps, projectId } = setup({ nas_copy: false });
     expect(getRun(db, (await runProject(projectId, "manual", deps))!)!.nas_ms).toBeNull();
-    db.prepare("UPDATE projects SET script = 'exit 3' WHERE id = ?").run(projectId);
-    const failed = getRun(db, (await runProject(projectId, "manual", deps))!)!;
+    const failed = getRun(db, (await runProject(projectId, "manual", { ...deps, script: "exit 3" }))!)!;
     expect(failed.status).toBe("failed");
     expect(failed.script_ms).not.toBeNull();
   });
@@ -138,14 +140,20 @@ describe("runProject", () => {
     expect(fs.existsSync(localBackupDir(cfg, "pilote", r1))).toBe(true);
   });
 
-  it("masque les secrets dans le log enregistré", async () => {
-    const { db, deps } = setup();
-    const envId = createEnvironment(db, { name: "e", description: "" });
-    upsertSecret(db, envId, "TOKEN", "tres-secret-123");
-    const pid = createProject(db, { ...input, name: "masque", environment_id: envId, network_secret: null, script: 'echo "$TOKEN"; echo x > "$OUTPUT_DIR/f"' });
-    const run = getRun(db, (await runProject(pid, "manual", deps))!)!;
-    expect(run.log).toContain(MASK);
+  it("l'URL est la seule variable secrète du run, masquée dans le journal", async () => {
+    const { db, deps, projectId } = setup({ script: 'echo "url=$DATABASE_URL mdp=tres-secret-123"; echo x > "$OUTPUT_DIR/f"' });
+    const run = getRun(db, (await runProject(projectId, "manual", deps))!)!;
+    expect(run.status).toBe("success");
+    expect(run.log).toContain(`url=${MASK}`);
     expect(run.log).not.toContain("tres-secret-123");
+  });
+
+  it("sans URL de connexion (projet migré sans URL) : échec explicite", async () => {
+    const { db, deps, projectId } = setup();
+    db.prepare("UPDATE projects SET db_url = NULL WHERE id = ?").run(projectId);
+    const run = getRun(db, (await runProject(projectId, "manual", deps))!)!;
+    expect(run.status).toBe("failed");
+    expect(run.log).toContain("URL de connexion manquante");
   });
 
   it("rétention : garde les N derniers succès en local et sur le NAS", async () => {
@@ -184,8 +192,7 @@ describe("runProject", () => {
   it("un échec ne déclenche pas la rétention", async () => {
     const { db, deps, projectId } = setup({ retention_count: 1 });
     const ok = (await runProject(projectId, "manual", deps))!;
-    db.prepare("UPDATE projects SET script = 'exit 1' WHERE id = ?").run(projectId);
-    await runProject(projectId, "manual", deps);
+    await runProject(projectId, "manual", { ...deps, script: "exit 1" });
     expect(getRun(db, ok)!.pruned).toBe(false);
     expect(listRuns(db, projectId)).toHaveLength(2);
   });

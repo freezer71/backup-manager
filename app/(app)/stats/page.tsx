@@ -77,7 +77,7 @@ export default async function StatsPage() {
 
       <Section
         title="Durée des backups"
-        description="Les 30 derniers backups réussis. Le détail script et copie NAS est mesuré depuis l'ajout de cette page."
+        description="Les 30 derniers backups réussis. Le détail dump et copie NAS est mesuré depuis l'ajout de cette page."
         panel={false}
       >
         <div className="panel divide-y divide-line">
@@ -92,7 +92,7 @@ export default async function StatsPage() {
                     <dt className="text-muted">Dernier</dt><dd>{formatDuration(stats.total.last)}</dd>
                     <dt className="text-muted">Moyenne</dt><dd>{formatDuration(stats.total.avg)}</dd>
                     <dt className="text-muted">Maximum</dt><dd>{formatDuration(stats.total.max)}</dd>
-                    <dt className="text-muted">Script</dt><dd>{formatDuration(stats.script.avg)} en moyenne</dd>
+                    <dt className="text-muted">Dump</dt><dd>{formatDuration(stats.script.avg)} en moyenne</dd>
                     <dt className="text-muted">Copie NAS</dt><dd>{formatDuration(stats.nas.avg)} en moyenne</dd>
                   </dl>
                 )}

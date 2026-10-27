@@ -1,13 +1,13 @@
+import type { DbKind } from "@/lib/dumps";
 import type { ProjectInput } from "@/lib/repo/projects";
 
 export function parseProjectForm(fd: FormData): ProjectInput {
   const str = (k: string) => String(fd.get(k) ?? "");
-  const env = str("environment_id");
   return {
     name: str("name"),
-    environment_id: env ? Number(env) : null,
-    network_secret: str("network_secret").trim() || null,
-    script: str("script"),
+    db_kind: str("db_kind") as DbKind,
+    // Vide : URL inchangée (modification) ; la création la refuse.
+    db_url: str("db_url").trim() || null,
     cron: str("cron"),
     retention_count: Number(str("retention_count")),
     timeout_minutes: Number(str("timeout_minutes")),

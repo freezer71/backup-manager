@@ -88,7 +88,7 @@ export default async function DashboardPage() {
         <h2 className="text-[15px] font-medium">Projets</h2>
         <div className="panel overflow-x-auto">
           {rows.length === 0 ? (
-            <EmptyState title="Aucun projet">Créez un environnement de secrets, puis un projet.</EmptyState>
+            <EmptyState title="Aucun projet">Créez un projet : un nom, le type de base et son URL de connexion.</EmptyState>
           ) : (
             <table className="data-table">
               <thead>
