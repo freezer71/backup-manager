@@ -9,7 +9,6 @@ const NAV = [
   { href: "/", label: "Tableau de bord" },
   { href: "/backups", label: "Backups" },
   { href: "/stats", label: "Statistiques" },
-  { href: "/environments", label: "Environnements" },
   { href: "/settings", label: "Paramètres" },
 ];
 

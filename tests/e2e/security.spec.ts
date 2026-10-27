@@ -28,7 +28,7 @@ test("CSP avec nonce sur chaque page, sans violation", async ({ page }) => {
     if (/Content.Security.Policy|Refused to/i.test(m.text())) violations.push(m.text());
   });
   await login(page);
-  for (const url of ["/", "/environments", "/projects/new", "/backups", "/stats", "/settings", "/page-inexistante"]) {
+  for (const url of ["/", "/projects/new", "/backups", "/stats", "/settings", "/page-inexistante"]) {
     const res = await page.goto(url);
     const csp = res!.headers()["content-security-policy"] ?? "";
     expect(csp, url).toMatch(/script-src 'self' 'nonce-[A-Za-z0-9+/=]+' 'strict-dynamic'/);
@@ -42,24 +42,29 @@ test("CSP avec nonce sur chaque page, sans violation", async ({ page }) => {
   expect(violations).toEqual([]);
 });
 
-test("une session sans code récent ne lit pas un secret, ne télécharge pas, ne modifie pas le webhook", async ({ page }) => {
+test("une session sans code récent ne lit pas l'URL de connexion, ne télécharge pas, ne modifie pas le webhook", async ({ page }) => {
+  const password = process.env.E2E_PG_PASSWORD!;
   await login(page);
   expireConfirmations();
 
-  await page.getByRole("link", { name: "Environnements" }).click();
-  await page.getByRole("link", { name: "e2e", exact: true }).click();
+  await page.getByRole("link", { name: "Projet E2E" }).click();
+  await page.waitForURL(/\/projects\/\d+$/);
+  const projectUrl = page.url();
   await page.getByRole("button", { name: "Afficher", exact: true }).click();
-  await expect(page.getByTestId("secret-GREETING")).toContainText("Code 2FA requis");
-  await expect(page.getByTestId("secret-GREETING")).not.toContainText("bonjour-secret");
+  await expect(page.getByText("Code 2FA requis")).toBeVisible();
+  await expect(page.getByTestId("db-url")).not.toContainText(password);
 
-  const envUrl = page.url();
-  await page.getByRole("link", { name: "Confirmer avec un code" }).click();
+  // Modifier le projet aussi demande le code.
+  await page.getByRole("button", { name: "Enregistrer", exact: true }).click();
+  await expect(page.getByText("Action sensible : confirmez d'abord")).toBeVisible();
+
+  await page.getByRole("link", { name: "Confirmer avec un code" }).first().click();
   await page.waitForURL(/\/confirm\?next=/);
   await typeNextCode(page);
   await page.getByRole("button", { name: "Confirmer", exact: true }).click();
-  await page.waitForURL(envUrl);
+  await page.waitForURL(projectUrl);
   await page.getByRole("button", { name: "Afficher", exact: true }).click();
-  await expect(page.getByTestId("secret-GREETING")).toHaveText("bonjour-secret");
+  await expect(page.getByTestId("db-url")).toContainText(password);
 
   expireConfirmations();
   const res = await page.request.get("/api/runs/1/files/0", { maxRedirects: 0 });

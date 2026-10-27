@@ -5,6 +5,9 @@ const PORT = 3310;
 
 export default defineConfig({
   testDir: "tests/e2e",
+  // Docker requis : une base PostgreSQL à sauvegarder.
+  globalSetup: "./tests/e2e/global-setup.ts",
+  globalTeardown: "./tests/e2e/global-teardown.ts",
   timeout: 90_000,
   workers: 1,
   use: { baseURL: `http://localhost:${PORT}` },
@@ -23,7 +26,7 @@ export default defineConfig({
       ADMIN_PASSWORD: "e2e-password-123",
       APP_URL: `http://localhost:${PORT}`,
       TZ: "Europe/Paris",
-      // Pas de runner isolé en e2e : les scripts tournent dans le processus de l'application.
+      // Pas de runner isolé en e2e : les dumps tournent dans le processus de l'application (pg_dump du poste).
       RUNNER_MODE: "local",
     },
   },

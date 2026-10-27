@@ -65,7 +65,7 @@ export async function requirePendingSession(): Promise<string> {
   return current.token;
 }
 
-// Action sensible (secrets, scripts, téléchargements, webhook) : une session ne suffit pas, il faut un code TOTP
+// Action sensible (URL de connexion, projets, téléchargements, webhook) : une session ne suffit pas, il faut un code TOTP
 // saisi il y a moins de 10 min. Une session volée seule ne lit ni ne modifie rien de critique.
 export async function hasRecentConfirmation(): Promise<boolean> {
   const current = await currentSession();

@@ -7,8 +7,8 @@ import { testDb, tmpDir } from "./helpers";
 
 const base: ProjectInput = {
   name: "Pilote",
-  environment_id: null, network_secret: null,
-  script: "echo",
+  db_kind: "postgres",
+  db_url: "postgresql://u:p@db.example.com/app",
   cron: "0 3 * * *",
   retention_count: 14,
   nas_copy: true,

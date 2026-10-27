@@ -5,8 +5,8 @@ import { testConfig, testDb } from "./helpers";
 
 const input: ProjectInput = {
   name: "a",
-  environment_id: null, network_secret: null,
-  script: "echo",
+  db_kind: "postgres",
+  db_url: "postgresql://u:p@db.example.com/app",
   cron: "0 3 * * *",
   retention_count: 1,
   nas_copy: false,

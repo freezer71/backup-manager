@@ -115,4 +115,37 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE sessions ADD COLUMN last_seen_at TEXT;
   ALTER TABLE sessions ADD COLUMN reauth_at TEXT;
   `,
+  `
+  -- Un projet = une base : son type et son URL de connexion remplacent l'environnement de secrets et le script.
+  -- L'URL est reprise du secret que la sandbox ouvrait déjà au réseau (network_secret) ; un projet sans URL
+  -- est désactivé. Table reconstruite (on ne peut pas supprimer une colonne de clé étrangère) : migrate()
+  -- désactive les clés étrangères, sinon DROP TABLE projects supprimerait les runs en cascade.
+  CREATE TABLE projects_new (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    slug TEXT NOT NULL UNIQUE,
+    db_kind TEXT NOT NULL CHECK (db_kind IN ('postgres', 'mongodb')),
+    db_url TEXT,
+    cron TEXT NOT NULL,
+    retention_count INTEGER NOT NULL DEFAULT 14,
+    nas_copy INTEGER NOT NULL DEFAULT 1,
+    timeout_minutes INTEGER NOT NULL DEFAULT 60,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  INSERT INTO projects_new (id, name, slug, db_kind, db_url, cron, retention_count, nas_copy, timeout_minutes, enabled, created_at, updated_at)
+  SELECT p.id, p.name, p.slug,
+    CASE WHEN p.network_secret = 'MONGO_URI' OR p.script LIKE '%mongodump%' THEN 'mongodb' ELSE 'postgres' END,
+    s.value,
+    p.cron, p.retention_count, p.nas_copy, p.timeout_minutes,
+    CASE WHEN s.value IS NULL THEN 0 ELSE p.enabled END,
+    p.created_at, p.updated_at
+  FROM projects p
+  LEFT JOIN secrets s ON s.environment_id = p.environment_id AND s.key = p.network_secret;
+  DROP TABLE projects;
+  ALTER TABLE projects_new RENAME TO projects;
+  DROP TABLE secrets;
+  DROP TABLE environments;
+  `,
 ];

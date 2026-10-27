@@ -14,7 +14,7 @@ const SCRIPT = "#ededed";
 const NAS = "#8f8f8f";
 const OTHER = "#3a3a3a";
 
-// Une barre par backup : script, copie NAS, reste (déplacement, rétention), en niveaux de gris.
+// Une barre par backup : dump, copie NAS, reste (déplacement, rétention), en niveaux de gris.
 export function DurationBars({ series }: { series: DurationPoint[] }) {
   const W = 600;
   const H = 96;
@@ -50,7 +50,7 @@ export function DurationBars({ series }: { series: DurationPoint[] }) {
         })}
       </svg>
       <figcaption className="flex flex-wrap gap-4 text-[12px] text-muted">
-        <span className="flex items-center gap-1.5"><span className="size-2" style={{ background: SCRIPT }} />script</span>
+        <span className="flex items-center gap-1.5"><span className="size-2" style={{ background: SCRIPT }} />dump</span>
         <span className="flex items-center gap-1.5"><span className="size-2" style={{ background: NAS }} />copie NAS</span>
         <span className="flex items-center gap-1.5"><span className="size-2" style={{ background: OTHER }} />autre</span>
         <span className="ml-auto">max {formatDuration(max)}</span>

@@ -57,7 +57,7 @@ export function WebhookForm({ current, problem }: { current: string | null; prob
       <form action={testAction}><SubmitButton variant="secondary">Envoyer une notification de test</SubmitButton></form>
       <FormError state={testState} />
       <p className="text-[13px] text-muted">
-        Reçoit aussi les alertes de sécurité : nouvel appareil, secret affiché ou modifié, script modifié, téléchargement…
+        Reçoit aussi les alertes de sécurité : nouvel appareil, URL de connexion affichée ou modifiée, projet créé ou supprimé, téléchargement…
       </p>
     </div>
   );

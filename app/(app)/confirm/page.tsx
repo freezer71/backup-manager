@@ -11,7 +11,7 @@ export default async function ConfirmPage({ searchParams }: { searchParams: Prom
     <>
       <PageHeader
         title="Confirmer votre identité"
-        subtitle={`Les secrets, les scripts, les téléchargements et le webhook demandent un code 2FA récent. Valable ${REAUTH_TTL_MS / 60_000} minutes.`}
+        subtitle={`Les URL de connexion, les projets, les téléchargements et le webhook demandent un code 2FA récent. Valable ${REAUTH_TTL_MS / 60_000} minutes.`}
       />
       <Section>
         <div className="max-w-sm">

@@ -7,11 +7,12 @@ import { requireSession } from "@/lib/auth/next-session";
 import { loadConfig } from "@/lib/config";
 import { describeCron, nextRuns } from "@/lib/cron";
 import { getDb } from "@/lib/db";
-import { getEnvironment, listEnvironments } from "@/lib/repo/environments";
-import { getProject } from "@/lib/repo/projects";
+import { dbUrlLabel } from "@/lib/db-url";
+import { DB_KINDS } from "@/lib/dumps";
+import { getProject, getProjectDbUrl } from "@/lib/repo/projects";
 import { listRuns } from "@/lib/repo/runs";
 import { relativeTime } from "@/lib/time";
-import { deleteProjectAction, runNowAction, updateProjectAction } from "../actions";
+import { deleteProjectAction, revealDbUrlAction, runNowAction, updateProjectAction } from "../actions";
 import { DeleteProjectForm } from "../DeleteProjectForm";
 import { ProjectForm } from "../ProjectForm";
 
@@ -27,8 +28,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
   if (!project) notFound();
   const { tz } = loadConfig();
   const runs = listRuns(db, id);
-  const environments = listEnvironments(db).map(({ id, name }) => ({ id, name }));
-  const env = project.environment_id ? getEnvironment(db, project.environment_id) : undefined;
+  const url = getProjectDbUrl(db, id);
   const upcoming = project.enabled ? nextRuns(project.cron, 3, tz) : [];
   const fmt = (d: Date | string) => new Date(d).toLocaleString("fr-FR", { timeZone: tz, dateStyle: "short", timeStyle: "short" });
 
@@ -40,7 +40,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
         subtitle={
           <>
             {project.enabled ? describeCron(project.cron) : "Planification désactivée"}
-            {env && <> · environnement {env.name}</>}
+            {" · "}{DB_KINDS[project.db_kind].label}{!url && <span className="text-warn"> · URL de connexion manquante</span>}
             {upcoming.length > 0 && <> · prochaines exécutions : {upcoming.map((d) => fmt(d)).join(", ")}</>}
           </>
         }
@@ -81,7 +81,13 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
       </Section>
 
       <Section title="Configuration">
-        <ProjectForm action={updateProjectAction.bind(null, id)} environments={environments} project={project} submitLabel="Enregistrer" />
+        <ProjectForm
+          action={updateProjectAction.bind(null, id)}
+          project={project}
+          savedUrlLabel={url ? dbUrlLabel(url) : null}
+          revealUrl={revealDbUrlAction.bind(null, id)}
+          submitLabel="Enregistrer"
+        />
       </Section>
 
       <Section title="Supprimer le projet" tone="danger">

@@ -2,7 +2,6 @@ import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createEnvironment, upsertSecret } from "@/lib/repo/environments";
 import { createProject } from "@/lib/repo/projects";
 import { getRun } from "@/lib/repo/runs";
 import { MASK } from "@/lib/runner/mask";
@@ -21,7 +20,9 @@ async function runner() {
   const root = tmpDir();
   const socket = path.join(root, "runner.sock");
   const workDir = path.join(root, "work");
-  servers.push(await startRunner(socket, { workDir, appGid: process.getgid!(), sandbox: false }));
+  // Résolveur figé : l'URL de test (db.example.com) n'a pas à exister.
+  const resolver = { lookup4: async () => "203.0.113.10", resolveSrv: async () => [], resolveTxt: async () => [] };
+  servers.push(await startRunner(socket, { workDir, appGid: process.getgid!(), sandbox: false, resolver }));
   return { socket, workDir };
 }
 
@@ -73,19 +74,18 @@ describe("runner isolé", () => {
     const { socket, workDir } = await runner();
     const db = testDb();
     const cfg = { ...testConfig(), runnerSocket: socket, runnerWorkDir: workDir };
-    const env = createEnvironment(db, { name: "prod", description: "" });
-    upsertSecret(db, env, "TOKEN", "jeton-secret-123");
     const projectId = createProject(db, {
       name: "Pilote",
-      environment_id: env, network_secret: null,
-      script: 'echo "t=$TOKEN"; echo x > "$OUTPUT_DIR/f.dump"; ln -s /etc/passwd "$OUTPUT_DIR/lien"',
+      db_kind: "postgres",
+      db_url: "postgresql://u:jeton-secret-123@db.example.com/app",
       cron: "0 3 * * *",
       retention_count: 3,
       nas_copy: false,
       timeout_minutes: 1,
       enabled: true,
     });
-    const run = getRun(db, (await runProject(projectId, "manual", { db, cfg }))!)!;
+    const script = 'echo "t=$DATABASE_URL"; echo x > "$OUTPUT_DIR/f.dump"; ln -s /etc/passwd "$OUTPUT_DIR/lien"';
+    const run = getRun(db, (await runProject(projectId, "manual", { db, cfg, script }))!)!;
     expect(run.status).toBe("success");
     expect(run.files).toEqual(["f.dump"]);
     expect(run.log).toContain(`t=${MASK}`);
@@ -131,9 +131,8 @@ describe("sorties d'un runner compromis", () => {
     const cfg = { ...testConfig(), runnerSocket: socket, runnerWorkDir: path.join(root, "work") };
     const projectId = createProject(db, {
       name: "Pilote",
-      environment_id: null,
-      network_secret: null,
-      script: "true",
+      db_kind: "postgres",
+      db_url: "postgresql://u:p@db.example.com/app",
       cron: "0 3 * * *",
       retention_count: 3,
       nas_copy: false,

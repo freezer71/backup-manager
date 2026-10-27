@@ -8,10 +8,7 @@ async function findHrefs(page: Page) {
   await page.goto(projectHref!);
   const runHref = await page.locator('a[href*="/runs/"]').first().getAttribute("href");
   expect(runHref).toBeTruthy();
-  await page.goto("/environments");
-  const envDetail = await page.locator('a[href^="/environments/"]').first().getAttribute("href");
-  expect(envDetail).toBeTruthy();
-  return { projectHref: projectHref!, runHref: runHref!, envDetail: envDetail! };
+  return { projectHref: projectHref!, runHref: runHref! };
 }
 
 test.describe.configure({ mode: "serial" });
@@ -20,7 +17,7 @@ test("aucune boucle de préchargement sur les routes dynamiques", async ({ page 
   await login(page);
   const hrefs = await findHrefs(page);
 
-  for (const url of [hrefs.projectHref, hrefs.runHref, hrefs.envDetail, "/"]) {
+  for (const url of [hrefs.projectHref, hrefs.runHref, "/projects/new", "/"]) {
     expectNoPrefetchLoop(await countRequests(page, url), url);
   }
 });
