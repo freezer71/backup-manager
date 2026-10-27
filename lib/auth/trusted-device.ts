@@ -36,6 +36,18 @@ export function isTrustedDevice(db: DB, token: string, now: Date = new Date()): 
   return true;
 }
 
+export type TrustedDeviceInfo = { id: number; created_at: string; last_used_at: string; user_agent: string | null };
+
+export function listTrustedDevices(db: DB, now: Date = new Date()): TrustedDeviceInfo[] {
+  return db
+    .prepare("SELECT id, created_at, last_used_at, user_agent FROM trusted_devices WHERE expires_at > ? ORDER BY last_used_at DESC")
+    .all(now.toISOString()) as TrustedDeviceInfo[];
+}
+
+export function revokeTrustedDevice(db: DB, id: number): void {
+  db.prepare("DELETE FROM trusted_devices WHERE id = ?").run(id);
+}
+
 // À appeler lors d'un changement de mot de passe ou d'une réinitialisation TOTP.
 export function revokeAllTrustedDevices(db: DB): void {
   db.prepare("DELETE FROM trusted_devices").run();

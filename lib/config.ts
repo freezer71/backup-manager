@@ -8,6 +8,8 @@ export type AppConfig = {
   tz: string;
   // Socket du runner isolé ; null = scripts exécutés dans ce processus (développement, tests).
   runnerSocket: string | null;
+  // Volume des runs, vu par l'application (lecture seule) : les sorties du run n sont dans <runnerWorkDir>/n/out.
+  runnerWorkDir: string;
   // Clés publiques age : si présentes, chaque copie NAS est chiffrée pour elles, le NAS ne reçoit jamais de clair.
   nasRecipients: string[];
 };
@@ -31,6 +33,10 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   if (nasRecipients.some((r) => !AGE_RECIPIENT.test(r))) {
     throw new ConfigError("NAS_AGE_RECIPIENTS : clé publique age invalide (attendu : age1…, séparées par des virgules)");
   }
+  // En production, le NAS ne reçoit jamais de dump en clair (RUNNER_MODE=local : tests e2e, sans copie NAS).
+  if (env.NODE_ENV === "production" && env.RUNNER_MODE !== "local" && nasRecipients.length === 0) {
+    throw new ConfigError("NAS_AGE_RECIPIENTS manquante : les copies NAS doivent être chiffrées en production (README)");
+  }
   return {
     dataDir: env.DATA_DIR || "/data",
     nasDir: env.NAS_DIR || "/mnt/backups-nas",
@@ -40,6 +46,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     appUrl: (env.APP_URL || "http://localhost:3000").replace(/\/+$/, ""),
     tz: env.TZ || "Europe/Paris",
     runnerSocket,
+    runnerWorkDir: env.RUNNER_WORK_DIR || "/work",
     nasRecipients,
   };
 }

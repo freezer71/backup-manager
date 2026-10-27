@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { FormState } from "@/app/login/actions";
-import { getClientIp, requireSession } from "@/lib/auth/next-session";
+import { getClientIp, hasRecentConfirmation, reauthRequired, requireSession } from "@/lib/auth/next-session";
 import { getDb } from "@/lib/db";
 import { audit } from "@/lib/repo/audit";
 import {
@@ -16,6 +16,7 @@ import {
   updateEnvironment,
   upsertSecret,
 } from "@/lib/repo/environments";
+import { securityEvent } from "@/lib/security-events";
 import { toFormError } from "@/lib/validation";
 
 function envFields(fd: FormData) {
@@ -37,11 +38,13 @@ export async function createEnvironmentAction(_: FormState, fd: FormData): Promi
 
 export async function updateEnvironmentAction(id: number, _: FormState, fd: FormData): Promise<FormState> {
   await requireSession();
+  const db = getDb();
   try {
-    updateEnvironment(getDb(), id, envFields(fd));
+    updateEnvironment(db, id, envFields(fd));
   } catch (e) {
     return toFormError(e);
   }
+  audit(db, "environment.update", envFields(fd).name, await getClientIp());
   revalidatePath(`/environments/${id}`);
   return { ok: "Enregistré." };
 }
@@ -49,6 +52,7 @@ export async function updateEnvironmentAction(id: number, _: FormState, fd: Form
 // eslint-disable-next-line @typescript-eslint/no-unused-vars -- signature imposée par useActionState (état précédent)
 export async function deleteEnvironmentAction(id: number, _: FormState): Promise<FormState> {
   await requireSession();
+  if (!(await hasRecentConfirmation())) return reauthRequired();
   const db = getDb();
   const env = getEnvironment(db, id);
   try {
@@ -56,12 +60,13 @@ export async function deleteEnvironmentAction(id: number, _: FormState): Promise
   } catch (e) {
     return toFormError(e);
   }
-  audit(db, "environment.delete", env?.name ?? String(id), await getClientIp());
+  securityEvent(db, "environment.delete", env?.name ?? String(id), await getClientIp());
   redirect("/environments");
 }
 
 export async function saveSecretAction(envId: number, _: FormState, fd: FormData): Promise<FormState> {
   await requireSession();
+  if (!(await hasRecentConfirmation())) return reauthRequired();
   const db = getDb();
   const env = getEnvironment(db, envId);
   if (!env) return { error: "Environnement introuvable" };
@@ -71,13 +76,14 @@ export async function saveSecretAction(envId: number, _: FormState, fd: FormData
   } catch (e) {
     return toFormError(e);
   }
-  audit(db, "secret.update", `${env.name}/${key}`, await getClientIp());
+  securityEvent(db, "secret.update", `${env.name}/${key}`, await getClientIp());
   revalidatePath(`/environments/${envId}`);
   return { ok: `${key} enregistrée.` };
 }
 
 export async function importDotenvAction(envId: number, _: FormState, fd: FormData): Promise<FormState> {
   await requireSession();
+  if (!(await hasRecentConfirmation())) return reauthRequired();
   const db = getDb();
   const env = getEnvironment(db, envId);
   if (!env) return { error: "Environnement introuvable" };
@@ -87,26 +93,29 @@ export async function importDotenvAction(envId: number, _: FormState, fd: FormDa
   } catch (e) {
     return toFormError(e);
   }
-  audit(db, "secret.import", `${env.name} (${count})`, await getClientIp());
+  securityEvent(db, "secret.import", `${env.name} (${count})`, await getClientIp());
   revalidatePath(`/environments/${envId}`);
   return { ok: count > 1 ? `${count} secrets importés.` : `${count} secret importé.` };
 }
 
-export async function deleteSecretAction(secretId: number): Promise<void> {
+export async function deleteSecretAction(secretId: number): Promise<{ reauth?: true }> {
   await requireSession();
+  if (!(await hasRecentConfirmation())) return { reauth: true };
   const db = getDb();
   const secret = getSecret(db, secretId);
-  if (!secret) return;
+  if (!secret) return {};
   deleteSecret(db, secretId);
-  audit(db, "secret.delete", `${getEnvironment(db, secret.environment_id)?.name}/${secret.key}`, await getClientIp());
+  securityEvent(db, "secret.delete", `${getEnvironment(db, secret.environment_id)?.name}/${secret.key}`, await getClientIp());
   revalidatePath(`/environments/${secret.environment_id}`);
+  return {};
 }
 
-export async function revealSecretAction(secretId: number): Promise<string> {
+export async function revealSecretAction(secretId: number): Promise<{ value: string } | { reauth: true }> {
   await requireSession();
+  if (!(await hasRecentConfirmation())) return { reauth: true };
   const db = getDb();
   const secret = getSecret(db, secretId);
   if (!secret) throw new Error("Secret introuvable");
-  audit(db, "secret.reveal", `${getEnvironment(db, secret.environment_id)?.name}/${secret.key}`, await getClientIp());
-  return secret.value;
+  securityEvent(db, "secret.reveal", `${getEnvironment(db, secret.environment_id)?.name}/${secret.key}`, await getClientIp());
+  return { value: secret.value };
 }

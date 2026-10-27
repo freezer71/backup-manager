@@ -16,6 +16,11 @@ export function makeMasker(values: string[]): (text: string) => string {
     // Le flux est découpé ligne par ligne avant masquage : chaque ligne d'un secret multi-lignes (PEM…) doit être masquée seule.
     for (const fragment of v.split(/\r?\n/)) add(fragment.trim());
     add(encodeURIComponent(v));
+    // Valeur encodée telle quelle (en-tête Basic, fichier de configuration…) ; pas pour un secret trop court.
+    if (v.length >= MIN_LENGTH) {
+      add(Buffer.from(v).toString("base64"));
+      add(Buffer.from(v).toString("base64url"));
+    }
     try {
       const url = new URL(v);
       if (url.password) {

@@ -2,7 +2,7 @@
 
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { verifyPassword } from "@/lib/auth/password";
+import { hashPassword, needsRehash, verifyPassword } from "@/lib/auth/password";
 import {
   clearSessionCookie,
   currentSession,
@@ -18,11 +18,13 @@ import { issueTrustedDevice } from "@/lib/auth/trusted-device";
 import { checkTotp } from "@/lib/auth/totp";
 import { getDb } from "@/lib/db";
 import { audit } from "@/lib/repo/audit";
-import { claimTotpStep, confirmTotp, getUser } from "@/lib/repo/user";
+import { claimTotpStep, confirmTotp, getUser, replacePasswordHash } from "@/lib/repo/user";
+import { securityEvent } from "@/lib/security-events";
 
 const MAX_EMAIL = 254;
 
-export type FormState = { error?: string; ok?: string };
+// reauth : l'action demande un code TOTP récent (voir hasRecentConfirmation).
+export type FormState = { error?: string; ok?: string; reauth?: boolean };
 
 function tooMany(ms: number): FormState {
   return { error: `Trop de tentatives. Réessayez dans ${Math.ceil(ms / 1000)} s.` };
@@ -32,7 +34,7 @@ function tooMany(ms: number): FormState {
 async function trustThisDevice(db: ReturnType<typeof getDb>, ip: string, email: string): Promise<void> {
   const userAgent = (await headers()).get("user-agent");
   await setTrustedDeviceCookie(issueTrustedDevice(db, { userAgent }));
-  audit(db, "device.trusted", email, ip);
+  securityEvent(db, "device.trusted", email, ip);
 }
 
 export async function loginAction(_: FormState, fd: FormData): Promise<FormState> {
@@ -53,7 +55,10 @@ export async function loginAction(_: FormState, fd: FormData): Promise<FormState
   // verifyPassword est toujours exécuté (même si l'email est faux) pour ne pas révéler l'email par le temps de réponse.
   const passwordOk = !!user && (await verifyPassword(user.password_hash, password));
   const ok = !!user && user.email === email && passwordOk;
-  if (ok) markAttemptSuccess(db, attempt.attemptId);
+  if (ok) {
+    markAttemptSuccess(db, attempt.attemptId);
+    if (needsRehash(user.password_hash)) replacePasswordHash(db, user.password_hash, await hashPassword(password));
+  }
   audit(db, ok ? "login.password_ok" : "login.failed", email, ip);
   if (!ok || !user) return { error: "Email ou mot de passe incorrect." };
 

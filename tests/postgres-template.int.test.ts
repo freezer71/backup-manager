@@ -46,7 +46,7 @@ describe.skipIf(!hasDocker())("modèle Postgres contre un vrai serveur", () => {
     const envId = createEnvironment(db, { name: "pg", description: "" });
     upsertSecret(db, envId, "DATABASE_URL", url);
     const pid = createProject(db, {
-      name: "pg-int", environment_id: envId, script: TEMPLATES.postgres.script, cron: "0 3 * * *",
+      name: "pg-int", environment_id: envId, network_secret: null, script: TEMPLATES.postgres.script, cron: "0 3 * * *",
       retention_count: 3, nas_copy: false, timeout_minutes: 5, enabled: true,
     });
     const run = getRun(db, (await runProject(pid, "manual", { db, cfg }))!)!;

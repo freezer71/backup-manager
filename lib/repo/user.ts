@@ -26,6 +26,12 @@ export function setPasswordHash(db: DB, hash: string): void {
   db.prepare("UPDATE user SET password_hash = ? WHERE id = 1").run(hash);
 }
 
+// Remplace le haché seulement s'il n'a pas changé entre-temps (re-hachage à la connexion : ne jamais écraser
+// un changement de mot de passe fait pendant le calcul).
+export function replacePasswordHash(db: DB, previous: string, hash: string): boolean {
+  return db.prepare("UPDATE user SET password_hash = ? WHERE id = 1 AND password_hash = ?").run(hash, previous).changes === 1;
+}
+
 export function setTotpPending(db: DB, secret: string): void {
   db.prepare("UPDATE user SET totp_pending_secret = ? WHERE id = 1").run(secret);
 }

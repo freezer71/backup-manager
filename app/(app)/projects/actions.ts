@@ -5,7 +5,7 @@ import path from "node:path";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { FormState } from "@/app/login/actions";
-import { getClientIp, requireSession } from "@/lib/auth/next-session";
+import { getClientIp, hasRecentConfirmation, reauthRequired, requireSession } from "@/lib/auth/next-session";
 import { getDb } from "@/lib/db";
 import { parseProjectForm } from "@/lib/forms";
 import { audit } from "@/lib/repo/audit";
@@ -14,10 +14,13 @@ import { createProject, deleteProject, getProject, updateProject } from "@/lib/r
 import { isProjectBusy, startProjectRun } from "@/lib/runner/run-project";
 import { getRunDeps, refreshProjectSchedule } from "@/lib/scheduler";
 import { safeChildDir } from "@/lib/runner/storage";
+import { securityEvent } from "@/lib/security-events";
 import { toFormError } from "@/lib/validation";
 
+// Créer, modifier ou supprimer un projet demande un code récent : un script choisit ses secrets et sa base.
 export async function createProjectAction(_: FormState, fd: FormData): Promise<FormState> {
   await requireSession();
+  if (!(await hasRecentConfirmation())) return reauthRequired();
   const db = getDb();
   const input = parseProjectForm(fd);
   if (input.environment_id !== null && !getEnvironment(db, input.environment_id)) {
@@ -30,12 +33,13 @@ export async function createProjectAction(_: FormState, fd: FormData): Promise<F
     return toFormError(e);
   }
   refreshProjectSchedule(id);
-  audit(db, "project.create", getProject(db, id)!.slug, await getClientIp());
+  securityEvent(db, "project.create", getProject(db, id)!.slug, await getClientIp());
   redirect(`/projects/${id}`);
 }
 
 export async function updateProjectAction(id: number, _: FormState, fd: FormData): Promise<FormState> {
   await requireSession();
+  if (!(await hasRecentConfirmation())) return reauthRequired();
   const db = getDb();
   const before = getProject(db, id);
   if (!before) return { error: "Projet introuvable" };
@@ -51,13 +55,18 @@ export async function updateProjectAction(id: number, _: FormState, fd: FormData
   refreshProjectSchedule(id);
   const ip = await getClientIp();
   audit(db, "project.update", before.slug, ip);
-  if (before.script !== getProject(db, id)!.script) audit(db, "script.update", before.slug, ip);
+  const after = getProject(db, id)!;
+  if (before.script !== after.script) securityEvent(db, "script.update", before.slug, ip);
+  if (before.network_secret !== after.network_secret || before.environment_id !== after.environment_id) {
+    securityEvent(db, "project.network", `${before.slug} : ${after.network_secret ?? "aucun réseau"}`, ip);
+  }
   revalidatePath(`/projects/${id}`);
   return { ok: "Enregistré." };
 }
 
 export async function deleteProjectAction(id: number, _: FormState, fd: FormData): Promise<FormState> {
   await requireSession();
+  if (!(await hasRecentConfirmation())) return reauthRequired();
   if (fd.get("confirm") !== "on") return { error: "Confirmation requise." };
   const { db, cfg } = getRunDeps();
   const project = getProject(db, id);
@@ -81,7 +90,7 @@ export async function deleteProjectAction(id: number, _: FormState, fd: FormData
   }
   deleteProject(db, id);
   refreshProjectSchedule(id);
-  audit(db, "project.delete", nasFailed ? `${project.slug} (NAS : échec suppression)` : project.slug, await getClientIp());
+  securityEvent(db, "project.delete", nasFailed ? `${project.slug} (NAS : échec suppression)` : project.slug, await getClientIp());
   redirect("/");
 }
 

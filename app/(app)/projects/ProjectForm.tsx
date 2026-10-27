@@ -28,6 +28,7 @@ export function ProjectForm({ action, environments, project, submitLabel }: Prop
   const [state, formAction] = useActionState(action, {});
   const [script, setScript] = useState(project?.script ?? TEMPLATES.postgres.script);
   const [cron, setCron] = useState(project?.cron ?? "0 3 * * *");
+  const [networkSecret, setNetworkSecret] = useState(project ? (project.network_secret ?? "") : TEMPLATES.postgres.networkSecret);
 
   const loadFile = async (file: File | undefined) => {
     if (file) setScript(await file.text());
@@ -45,6 +46,13 @@ export function ProjectForm({ action, environments, project, submitLabel }: Prop
           </select>
         </label>
         <label className="flex flex-col gap-1.5">
+          Secret contenant l&apos;URL de la base
+          <input name="network_secret" value={networkSecret} onChange={(e) => setNetworkSecret(e.target.value.toUpperCase())} placeholder="DATABASE_URL" className="font-mono" />
+          <span className="text-[13px] text-muted">
+            {networkSecret ? "Le script ne peut joindre que l'hôte et le port de cette URL." : "Vide : le script n'a aucun accès réseau."}
+          </span>
+        </label>
+        <label className="flex flex-col gap-1.5">
           Planification (cron, heure de Paris)
           <input name="cron" value={cron} onChange={(e) => setCron(e.target.value)} required className="font-mono" />
           <span className="text-[13px] text-muted">{describe(cron)}</span>
@@ -60,7 +68,14 @@ export function ProjectForm({ action, environments, project, submitLabel }: Prop
       <div className="flex flex-col gap-2">
         <div className="flex flex-wrap items-center gap-3 text-sm">
           <span className="font-medium text-fg">Script</span>
-          <select aria-label="Modèle" defaultValue="" onChange={(e) => { if (e.target.value) setScript(TEMPLATES[e.target.value as TemplateId].script); e.target.value = ""; }}>
+          <select aria-label="Modèle" defaultValue="" onChange={(e) => {
+            const t = TEMPLATES[e.target.value as TemplateId];
+            if (t) {
+              setScript(t.script);
+              setNetworkSecret(t.networkSecret);
+            }
+            e.target.value = "";
+          }}>
             <option value="">Charger un modèle…</option>
             {(Object.keys(TEMPLATES) as TemplateId[]).map((id) => <option key={id} value={id}>{TEMPLATES[id].label}</option>)}
           </select>
@@ -72,7 +87,7 @@ export function ProjectForm({ action, environments, project, submitLabel }: Prop
         <ScriptEditor value={script} onChange={setScript} />
         <input type="hidden" name="script" value={script} />
         <p className="text-[13px] text-muted">
-          Exécuté avec <code>bash -euo pipefail</code>. Écrivez vos fichiers dans <code>$OUTPUT_DIR</code> ; les secrets de l&apos;environnement sont des variables d&apos;environnement, avec <code>$PROJECT_NAME</code> et <code>$TIMESTAMP</code>.
+          Exécuté avec <code>bash -euo pipefail</code> dans une sandbox : système en lecture seule, écriture uniquement dans <code>$OUTPUT_DIR</code> (vos fichiers de backup) et <code>$TMPDIR</code>, réseau limité à la base ci-dessus, sans DNS. Les secrets de l&apos;environnement sont des variables d&apos;environnement, avec <code>$PROJECT_NAME</code> et <code>$TIMESTAMP</code>.
         </p>
       </div>
 

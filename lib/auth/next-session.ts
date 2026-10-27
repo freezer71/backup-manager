@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { getDb } from "@/lib/db";
 import { getUser } from "@/lib/repo/user";
 import { clientIpFromHeaders, parseTrustedProxies } from "./client-ip";
-import { findSession, type Session } from "./session";
+import { findSession, isRecentlyConfirmed, type Session } from "./session";
 import { isTrustedDevice, TRUSTED_DEVICE_TTL_MS } from "./trusted-device";
 
 // Le préfixe __Host- impose Secure, Path=/ et l'absence de Domain (déjà le cas en production).
@@ -63,6 +63,24 @@ export async function requirePendingSession(): Promise<string> {
   if (!current) redirect("/login");
   if (current.session.totp_ok) redirect("/");
   return current.token;
+}
+
+// Action sensible (secrets, scripts, téléchargements, webhook) : une session ne suffit pas, il faut un code TOTP
+// saisi il y a moins de 10 min. Une session volée seule ne lit ni ne modifie rien de critique.
+export async function hasRecentConfirmation(): Promise<boolean> {
+  const current = await currentSession();
+  return !!current && isRecentlyConfirmed(current.session);
+}
+
+export const REAUTH_MESSAGE = "Action sensible : confirmez d'abord avec un code de votre application 2FA.";
+
+export function reauthRequired(): { error: string; reauth: true } {
+  return { error: REAUTH_MESSAGE, reauth: true };
+}
+
+// Destination après confirmation : un chemin de l'application, jamais une autre origine.
+export function safeNextPath(next: string | null | undefined): string {
+  return next && /^\/(?![/\\])[^\s\\]*$/.test(next) ? next : "/";
 }
 
 export async function requireApiSession(): Promise<boolean> {

@@ -16,7 +16,7 @@ import { testConfig, testDb } from "./helpers";
 
 const input: ProjectInput = {
   name: "Pilote",
-  environment_id: null,
+  environment_id: null, network_secret: null,
   script: 'echo "dump" > "$OUTPUT_DIR/$PROJECT_NAME-$TIMESTAMP.dump"',
   cron: "0 3 * * *",
   retention_count: 14,
@@ -142,7 +142,7 @@ describe("runProject", () => {
     const { db, deps } = setup();
     const envId = createEnvironment(db, { name: "e", description: "" });
     upsertSecret(db, envId, "TOKEN", "tres-secret-123");
-    const pid = createProject(db, { ...input, name: "masque", environment_id: envId, script: 'echo "$TOKEN"; echo x > "$OUTPUT_DIR/f"' });
+    const pid = createProject(db, { ...input, name: "masque", environment_id: envId, network_secret: null, script: 'echo "$TOKEN"; echo x > "$OUTPUT_DIR/f"' });
     const run = getRun(db, (await runProject(pid, "manual", deps))!)!;
     expect(run.log).toContain(MASK);
     expect(run.log).not.toContain("tres-secret-123");

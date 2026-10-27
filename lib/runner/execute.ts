@@ -16,6 +16,11 @@ export type ExecOptions = {
   // Compte sous lequel lancer le script (runner isolé, qui tourne en root avec CAP_SETUID/SETGID).
   uid?: number;
   gid?: number;
+  // Lanceur à exécuter à la place de `bash -euo pipefail <script>` (sandbox du runner), et ce qu'il lit sur
+  // son entrée standard : sa configuration, secrets compris, n'apparaît ainsi ni dans ses arguments ni sur disque.
+  launcher?: { file: string; args: string[]; input: string };
+  // Lignes du runner écrites en tête du journal (ex. destinations réseau autorisées).
+  notes?: string[];
 };
 
 export type ExecResult = {
@@ -60,16 +65,22 @@ export function executeScript(o: ExecOptions): Promise<ExecResult> {
       o.onLog?.(log);
     };
 
+    for (const note of o.notes ?? []) push(note, false, true);
+
     // detached : le script devient chef d'un groupe de processus, qu'on peut tuer en entier.
-    const child = spawn("bash", ["-euo", "pipefail", o.scriptPath], {
+    const [file, args] = o.launcher ? [o.launcher.file, o.launcher.args] : ["bash", ["-euo", "pipefail", o.scriptPath]];
+    const child = spawn(file, args, {
       cwd: o.cwd,
       // Cast : le typage de Next impose NODE_ENV dans ProcessEnv, qu'on ne transmet volontairement pas.
       env: o.env as NodeJS.ProcessEnv,
       detached: true,
       uid: o.uid,
       gid: o.gid,
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: ["pipe", "pipe", "pipe"],
     });
+    // Le script lit une entrée vide ; le lanceur, sa configuration.
+    child.stdin.on("error", () => {}); // lanceur mort avant d'avoir tout lu : son code de sortie le dira
+    child.stdin.end(o.launcher?.input ?? "");
 
     const readLines = (stream: Readable, isErr: boolean) => {
       let buffer = "";
@@ -157,7 +168,7 @@ export function executeScript(o: ExecOptions): Promise<ExecResult> {
       }, o.killGraceMs ?? 10_000);
     }, o.timeoutMs);
 
-    child.on("error", (err) => push(`Impossible de lancer bash : ${err.message}`, true, true));
+    child.on("error", (err) => push(`Impossible de lancer ${file} : ${err.message}`, true, true));
     child.on("exit", (code, signal) => {
       exitCode = code;
       exitSignal = signal;

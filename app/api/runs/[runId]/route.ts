@@ -8,5 +8,5 @@ export async function GET(_: Request, { params }: { params: Promise<{ runId: str
   if (!(await requireApiSession())) return new Response("Non authentifié", { status: 401 });
   const run = getRun(getDb(), Number((await params).runId));
   if (!run) return new Response("Introuvable", { status: 404 });
-  return Response.json({ status: run.status, log: run.log, finished_at: run.finished_at });
+  return Response.json({ status: run.status, log: run.log, finished_at: run.finished_at }, { headers: { "cache-control": "no-store" } });
 }

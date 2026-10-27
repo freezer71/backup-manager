@@ -2,13 +2,13 @@ import { createReadStream } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
-import { getClientIp, requireApiSession } from "@/lib/auth/next-session";
+import { getClientIp, hasRecentConfirmation, requireApiSession } from "@/lib/auth/next-session";
 import { loadConfig } from "@/lib/config";
 import { getDb } from "@/lib/db";
-import { audit } from "@/lib/repo/audit";
 import { getProject } from "@/lib/repo/projects";
 import { getRun } from "@/lib/repo/runs";
 import { localBackupDir } from "@/lib/runner/storage";
+import { securityEvent } from "@/lib/security-events";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +20,11 @@ export async function GET(_: Request, { params }: { params: Promise<{ runId: str
   const run = getRun(db, Number(runId));
   if (!run || run.status !== "success") return new Response("Introuvable", { status: 404 });
   if (run.pruned) return new Response("Fichier supprimé par la rétention", { status: 410 });
+  // Un dump contient toute une base : code TOTP récent exigé, puis retour à la page du run.
+  if (!(await hasRecentConfirmation())) {
+    const next = `/projects/${run.project_id}/runs/${run.id}`;
+    return new Response(null, { status: 303, headers: { location: `/confirm?next=${encodeURIComponent(next)}`, "cache-control": "no-store" } });
+  }
   const project = getProject(db, run.project_id);
   const file = run.files[Number(index)];
   if (!project || !file) return new Response("Introuvable", { status: 404 });
@@ -35,13 +40,14 @@ export async function GET(_: Request, { params }: { params: Promise<{ runId: str
   } catch {
     return new Response("Fichier absent du disque", { status: 404 });
   }
-  audit(db, "backup.download", `${project.slug}/${file}`, await getClientIp());
+  securityEvent(db, "backup.download", `${project.slug}/${file}`, await getClientIp());
   const stream = Readable.toWeb(createReadStream(full)) as ReadableStream;
   return new Response(stream, {
     headers: {
       "content-type": "application/octet-stream",
       "content-length": String(size),
       "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(path.basename(file))}`,
+      "cache-control": "no-store",
     },
   });
 }

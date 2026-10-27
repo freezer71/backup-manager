@@ -1,12 +1,14 @@
 # syntax=docker/dockerfile:1
 
-FROM node:24-bookworm-slim AS deps
-WORKDIR /app
-RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ && rm -rf /var/lib/apt/lists/*
-COPY package.json package-lock.json ./
-RUN npm ci
+# Images épinglées par empreinte (Dependabot propose les mises à jour).
 
-FROM node:24-bookworm-slim AS build
+FROM node:24-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS deps
+WORKDIR /app
+COPY package.json package-lock.json ./
+# Aucun script d'installation : un paquet compromis ne s'exécute pas au build (les modules natifs sont précompilés).
+RUN npm ci --ignore-scripts
+
+FROM node:24-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS build
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
@@ -15,7 +17,7 @@ RUN npm run build
 
 # Application : pas d'outils de dump (les scripts tournent dans le runner).
 # Le code appartient à root : le processus (uid app) ne peut pas le modifier.
-FROM node:24-bookworm-slim AS app
+FROM node:24-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS app
 WORKDIR /app
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=3000 HOSTNAME=0.0.0.0 TZ=Europe/Paris DATA_DIR=/data NAS_DIR=/mnt/backups-nas
 
@@ -36,13 +38,13 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s CMD curl -fsS http://
 CMD ["node", "server.js"]
 
 # Runner isolé : exécute les scripts de backup, sans la base, sans sa clé, sans le NAS.
-# Tourne en root avec seulement CHOWN/SETUID/SETGID/KILL (voir docker-compose.yml) pour lancer
-# chaque run sous son propre uid.
-FROM node:24-bookworm-slim AS runner
+# Tourne en root avec quelques capacités (voir docker-compose.yml) pour lancer chaque run sous son propre uid,
+# dans une sandbox bubblewrap (runner/sandbox.ts).
+FROM node:24-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS runner
 WORKDIR /runner
 ENV NODE_ENV=production TZ=Europe/Paris RUNNER_SOCKET=/run/bm/runner.sock WORK_DIR=/work APP_GID=1001
 
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl gnupg bash tzdata \
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl gnupg bash tzdata bubblewrap iproute2 \
  && install -d /usr/share/keyrings \
  && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /usr/share/keyrings/pgdg.gpg \
  && echo "deb [signed-by=/usr/share/keyrings/pgdg.gpg] http://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
@@ -53,8 +55,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 
 RUN mkdir -p /work /run/bm
 
-COPY lib/runner/env.ts lib/runner/execute.ts lib/runner/mask.ts ./lib/runner/
-COPY runner/server.ts ./runner/
+COPY lib/runner/env.ts lib/runner/execute.ts lib/runner/mask.ts lib/runner/targets.ts ./lib/runner/
+COPY runner/server.ts runner/sandbox.ts runner/sandbox-init.ts ./runner/
 
 VOLUME /work
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s CMD test -S "$RUNNER_SOCKET" || exit 1
