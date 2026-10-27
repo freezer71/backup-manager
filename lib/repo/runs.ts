@@ -84,10 +84,16 @@ export function getRun(db: DB, id: number): Run | undefined {
   return row && toRun(row);
 }
 
-export function listRuns(db: DB, projectId: number, limit = 50): Run[] {
+export function listRuns(db: DB, projectId: number, limit = 50, offset = 0): Run[] {
   return (
-    db.prepare(`SELECT ${SUMMARY_COLUMNS} FROM runs WHERE project_id = ? ORDER BY id DESC LIMIT ?`).all(projectId, limit) as RunRow[]
+    db
+      .prepare(`SELECT ${SUMMARY_COLUMNS} FROM runs WHERE project_id = ? ORDER BY id DESC LIMIT ? OFFSET ?`)
+      .all(projectId, limit, offset) as RunRow[]
   ).map(toRun);
+}
+
+export function countRuns(db: DB, projectId: number): number {
+  return (db.prepare("SELECT count(*) AS n FROM runs WHERE project_id = ?").get(projectId) as { n: number }).n;
 }
 
 export function lastRun(db: DB, projectId: number): Run | undefined {

@@ -5,10 +5,14 @@ async function findHrefs(page: Page) {
   await page.goto("/");
   const projectHref = await page.getByRole("link", { name: "Projet E2E" }).getAttribute("href");
   expect(projectHref).toBeTruthy();
+  // L'historique a sa propre route, accessible par l'onglet.
   await page.goto(projectHref!);
+  await page.getByRole("link", { name: /^Historique/ }).click();
+  await page.waitForURL(/\/projects\/\d+\/runs$/);
+  const historyHref = new URL(page.url()).pathname;
   const runHref = await page.locator('a[href*="/runs/"]').first().getAttribute("href");
   expect(runHref).toBeTruthy();
-  return { projectHref: projectHref!, runHref: runHref! };
+  return { projectHref: projectHref!, historyHref, runHref: runHref! };
 }
 
 test.describe.configure({ mode: "serial" });
@@ -17,7 +21,7 @@ test("aucune boucle de préchargement sur les routes dynamiques", async ({ page 
   await login(page);
   const hrefs = await findHrefs(page);
 
-  for (const url of [hrefs.projectHref, hrefs.runHref, "/projects/new", "/"]) {
+  for (const url of [hrefs.projectHref, hrefs.historyHref, hrefs.runHref, "/projects/new", "/"]) {
     expectNoPrefetchLoop(await countRequests(page, url), url);
   }
 });
