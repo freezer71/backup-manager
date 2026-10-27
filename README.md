@@ -1,6 +1,6 @@
 # Backup Manager
 
-Application web (mono-utilisateur) qui sauvegarde des bases PostgreSQL et MongoDB à heure fixe,
+Application web (mono-utilisateur) qui sauvegarde des bases PostgreSQL, MongoDB et MySQL / MariaDB à heure fixe,
 stocke leurs URL de connexion dans une base SQLite chiffrée (SQLCipher) et copie les backups sur le NAS.
 
 ## Développement
@@ -25,12 +25,16 @@ Docker et `pg_dump` requis : une base PostgreSQL de test est lancée dans Docker
 
 ## Un projet = une base
 
-Un projet a un nom, un type de base (PostgreSQL ou MongoDB) et une URL de connexion, plus sa
+Un projet a un nom, un type de base (PostgreSQL, MongoDB ou MySQL / MariaDB) et une URL de connexion, plus sa
 planification, sa rétention et sa copie NAS. Il n'y a pas de script à écrire : l'application lance
 toujours le même dump selon le type (`lib/dumps.ts`).
 
 - **PostgreSQL** : `pg_dump -F c`, vérifié avec `pg_restore -l` ; fichier `<projet>-backup_<date>.dump`.
 - **MongoDB** : `mongodump --archive --gzip`, vérifié avec `gzip -t` ; fichier `<projet>-backup_<date>.archive.gz`.
+- **MySQL / MariaDB** : `mariadb-dump --single-transaction --routines --triggers | gzip`, vérifié avec `gzip -t` et
+  la ligne finale `Dump completed` ; fichier `<projet>-backup_<date>.sql.gz`. URL `mysql://` ou `mariadb://`, un seul
+  hôte ; sans nom de base, toutes les bases sont sauvegardées. TLS : `?ssl-mode=REQUIRED` (chiffré) ou
+  `?ssl-mode=VERIFY_IDENTITY` (certificat et nom d'hôte vérifiés). Le client MariaDB fonctionne aussi avec MySQL 8 et 9.
 - L'URL est enregistrée chiffrée. La page du projet n'en montre que l'hôte et la base ; l'afficher en
   entier ou la changer demande un code 2FA récent. Un compte **en lecture seule** sur la base suffit.
 - L'URL est masquée (`••••`) dans les journaux, ainsi que son mot de passe et ses formes encodées.
@@ -50,7 +54,7 @@ Fonctionnement d'un dump :
 - Sortie + dossier temporaire sont limités à 50 Gio par run (`RUN_MAX_BYTES` sur le runner) : au-delà,
   le run est arrêté.
 - En développement (sans `RUNNER_SOCKET`), le dump tourne dans le processus de l'application
-  (`pg_dump` / `mongodump` du poste), sans aucune isolation. En production, l'application refuse de démarrer sans `RUNNER_SOCKET`
+  (`pg_dump` / `mongodump` / `mariadb-dump` du poste), sans aucune isolation. En production, l'application refuse de démarrer sans `RUNNER_SOCKET`
   (sauf `RUNNER_MODE=local`, réservé aux tests e2e).
 - Succès = dump terminé sans erreur, vérifié, **et** un fichier produit.
 
@@ -245,4 +249,10 @@ MongoDB (`.archive.gz`) :
 
 ```bash
 mongorestore --uri="<URL de la base cible>" --archive=<fichier> --gzip
+```
+
+MySQL / MariaDB (`.sql.gz`, recrée la base sous son nom d'origine) :
+
+```bash
+gzip -dc <fichier>.sql.gz | mariadb -h <hôte> -u <utilisateur> -p
 ```

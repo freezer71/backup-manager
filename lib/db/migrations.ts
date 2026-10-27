@@ -148,4 +148,25 @@ export const MIGRATIONS: string[] = [
   DROP TABLE secrets;
   DROP TABLE environments;
   `,
+  `
+  -- Type mysql (MySQL / MariaDB) : SQLite ne sait pas modifier une contrainte CHECK, la table est reconstruite.
+  CREATE TABLE projects_new (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    slug TEXT NOT NULL UNIQUE,
+    db_kind TEXT NOT NULL CHECK (db_kind IN ('postgres', 'mongodb', 'mysql')),
+    db_url TEXT,
+    cron TEXT NOT NULL,
+    retention_count INTEGER NOT NULL DEFAULT 14,
+    nas_copy INTEGER NOT NULL DEFAULT 1,
+    timeout_minutes INTEGER NOT NULL DEFAULT 60,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  INSERT INTO projects_new SELECT id, name, slug, db_kind, db_url, cron, retention_count, nas_copy, timeout_minutes, enabled, created_at, updated_at
+  FROM projects;
+  DROP TABLE projects;
+  ALTER TABLE projects_new RENAME TO projects;
+  `,
 ];

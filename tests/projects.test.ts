@@ -55,7 +55,11 @@ describe("projets", () => {
       [{ db_url: "mongodb://u:secret-1@h.example.com/app" }, /URL PostgreSQL attendue/],
       [{ db_kind: "mongodb" }, /URL MongoDB attendue/],
       [{ db_url: "postgresql://u:secret-1@/app?host=/var/run" }, /URL de connexion/],
-      [{ db_kind: "mysql" as never }, /Type de base inconnu/],
+      [{ db_kind: "oracle" as never }, /Type de base inconnu/],
+      [{ db_kind: "mysql" }, /URL MySQL \/ MariaDB attendue/],
+      [{ db_kind: "mysql", db_url: "mysql://u:secret-1@a.example.com,b.example.com/app" }, /un seul hôte/],
+      [{ db_kind: "mysql", db_url: "mysql://u:secret-1@db.example.com/%2D%2Dplugin-dir=%2Ftmp" }, /nom de base invalide/],
+      [{ db_kind: "mysql", db_url: "mysql://u:secret-1@db.example.com/-x" }, /nom de base invalide/],
       [{ db_url: "postgresql://u:5432/secret-1@db.example.com/app" }, /encodez les caractères spéciaux/],
     ];
     for (const [patch, message] of attempts) {
@@ -70,6 +74,8 @@ describe("projets", () => {
       expect((error as Error).message).not.toContain("secret-1");
     }
     expect(createProject(db, { ...baseInput, name: "m", db_kind: "mongodb", db_url: "mongodb+srv://u:p@cluster.example.net/app" })).toBeGreaterThan(0);
+    expect(createProject(db, { ...baseInput, name: "my", db_kind: "mysql", db_url: "mysql://u:p@db.example.com/app" })).toBeGreaterThan(0);
+    expect(createProject(db, { ...baseInput, name: "maria", db_kind: "mysql", db_url: "mariadb://u:p@db.example.com:3307/app" })).toBeGreaterThan(0);
   });
 
   it("modification : URL vide = inchangée ; changer de type exige une URL adaptée", () => {
@@ -90,6 +96,10 @@ describe("dumps", () => {
     expect(DB_KINDS.postgres.script).toContain('pg_dump "$DATABASE_URL" -F c');
     expect(DB_KINDS.postgres.script).toContain("pg_restore -l");
     expect(DB_KINDS.mongodb.script).toContain('mongodump --uri="$DATABASE_URL"');
+    expect(DB_KINDS.mysql.script).toContain('rest="${DATABASE_URL#*://}"');
+    expect(DB_KINDS.mysql.script).toContain('mariadb-dump "${opts[@]}" | gzip');
+    // Le mot de passe ne passe jamais en argument (visible dans ps).
+    expect(DB_KINDS.mysql.script).not.toMatch(/--password|-p"/);
   });
 
   it("libellé affichable : ni identifiants ni paramètres", () => {

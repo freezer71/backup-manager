@@ -50,7 +50,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
  && echo "deb [signed-by=/usr/share/keyrings/pgdg.gpg] http://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
  && curl -fsSL https://pgp.mongodb.com/server-8.0.asc | gpg --dearmor -o /usr/share/keyrings/mongodb.gpg \
  && echo "deb [signed-by=/usr/share/keyrings/mongodb.gpg] http://repo.mongodb.org/apt/debian bookworm/mongodb-org/8.0 main" > /etc/apt/sources.list.d/mongodb.list \
- && apt-get update && apt-get install -y --no-install-recommends postgresql-client-18 mongodb-database-tools \
+ && apt-get update && apt-get install -y --no-install-recommends postgresql-client-18 mongodb-database-tools mariadb-client \
  && rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p /work /run/bm
