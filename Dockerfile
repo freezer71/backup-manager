@@ -2,13 +2,13 @@
 
 # Images épinglées par empreinte (Dependabot propose les mises à jour).
 
-FROM node:24-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS deps
+FROM node:25-bookworm-slim@sha256:81db02c4b671288a03915da9534dbd54f96d0e7c24d80ccc54f5b36b2e684370 AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 # Aucun script d'installation : un paquet compromis ne s'exécute pas au build (les modules natifs sont précompilés).
 RUN npm ci --ignore-scripts
 
-FROM node:24-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS build
+FROM node:25-bookworm-slim@sha256:81db02c4b671288a03915da9534dbd54f96d0e7c24d80ccc54f5b36b2e684370 AS build
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
@@ -17,7 +17,7 @@ RUN npm run build
 
 # Application : pas d'outils de dump (les scripts tournent dans le runner).
 # Le code appartient à root : le processus (uid app) ne peut pas le modifier.
-FROM node:24-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS app
+FROM node:25-bookworm-slim@sha256:81db02c4b671288a03915da9534dbd54f96d0e7c24d80ccc54f5b36b2e684370 AS app
 WORKDIR /app
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=3000 HOSTNAME=0.0.0.0 TZ=Europe/Paris DATA_DIR=/data NAS_DIR=/mnt/backups-nas
 
@@ -40,7 +40,7 @@ CMD ["node", "server.js"]
 # Runner isolé : exécute les scripts de backup, sans la base, sans sa clé, sans le NAS.
 # Tourne en root avec quelques capacités (voir docker-compose.yml) pour lancer chaque run sous son propre uid,
 # dans une sandbox bubblewrap (runner/sandbox.ts).
-FROM node:24-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS runner
+FROM node:25-bookworm-slim@sha256:81db02c4b671288a03915da9534dbd54f96d0e7c24d80ccc54f5b36b2e684370 AS runner
 WORKDIR /runner
 ENV NODE_ENV=production TZ=Europe/Paris RUNNER_SOCKET=/run/bm/runner.sock WORK_DIR=/work APP_GID=1001
 
