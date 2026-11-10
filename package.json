@@ -12,7 +12,7 @@
     "test:e2e": "rm -rf .e2e-data .e2e-nas && playwright test"
   },
   "dependencies": {
-    "@node-rs/argon2": "^2.2.1",
+    "@node-rs/argon2": "^2.2.2",
     "better-sqlite3-multiple-ciphers": "^13.0.3",
     "croner": "^10.0.1",
     "cronstrue": "^3.27.0",
