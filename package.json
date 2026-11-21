@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@node-rs/argon2": "^2.2.1",
-    "better-sqlite3-multiple-ciphers": "^13.0.3",
+    "better-sqlite3-multiple-ciphers": "^13.2.0",
     "croner": "^10.0.1",
     "cronstrue": "^3.27.0",
     "next": "16.4.5",
